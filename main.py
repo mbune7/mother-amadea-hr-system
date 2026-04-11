@@ -1,4 +1,4 @@
-# Hospital HR Management System - Step 10 (Final)
+here is my codes kindly guide:  Hospital HR Management System - Step 10 (Final)
 # Features: Full CRUD + Departments + Attendance + Export to Excel + KPI
 
 import sqlite3
@@ -85,7 +85,7 @@ class HospitalHR:
             print("No staff found.")
             return
         print("\n" + "═"*115)
-        print("🏥 MOTHER AMADEA STAFF DIRECTORY")
+        print("🏥 HOSPITAL STAFF DIRECTORY")
         print("═"*115)
         print(f"{'ID':<8} {'Name':<28} {'Position':<22} {'Department':<20} {'Salary (KES)':<18} {'Hire Date':<12}")
         print("═"*115)
@@ -179,7 +179,7 @@ class HospitalHR:
 
     # ====================== KPI MONITORING ======================
     def kpi_monitoring(self):
-        print("\n🏥 MOTHER AMADEA KPI MONITORING DASHBOARD")
+        print("\n🏥 KPI MONITORING DASHBOARD")
         print("="*50)
 
         # Total Staff
@@ -228,7 +228,7 @@ class HospitalHR:
         if not rows:
             print("No departments yet.")
             return
-        print("\nMother Amadea Departments:")
+        print("\nHospital Departments:")
         for row in rows:
             print(f"• {row[0]}")
 
@@ -251,7 +251,7 @@ class HospitalHR:
 # ====================== MAIN MENU ======================
 def main():
     print("="*75)
-    print("       🏥  MOTHER AMADEA HR SYSTEM  🏥")
+    print("       🏥  MOMBASA HOSPITAL HR MANAGEMENT SYSTEM  🏥")
     print("="*75)
 
     hr = HospitalHR()

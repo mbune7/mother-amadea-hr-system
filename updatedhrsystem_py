@@ -1,0 +1,234 @@
+# ================================================
+# MOTHER AMADEA MISSION HOSPITAL - HR MANAGEMENT SYSTEM
+# Enhanced with Leave, Performance, Salary Slip & Department Summary
+# ================================================
+
+import sqlite3
+from datetime import datetime
+import pandas as pd
+
+class MotherAmadeaHR:
+    def __init__(self):
+        self.conn = sqlite3.connect("mother_amadea_hr.db")
+        self.cursor = self.conn.cursor()
+        self.create_tables()
+
+    def create_tables(self):
+        # Employees Table
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS employees (
+                emp_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                position TEXT NOT NULL,
+                department TEXT NOT NULL,
+                salary REAL,
+                hire_date TEXT,
+                status TEXT DEFAULT 'Active'
+            )
+        ''')
+        # Attendance Table
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS attendance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_id TEXT,
+                attendance_date TEXT,
+                status TEXT,
+                notes TEXT,
+                FOREIGN KEY (emp_id) REFERENCES employees(emp_id)
+            )
+        ''')
+        # Leave Table
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS leaves (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_id TEXT,
+                leave_type TEXT,
+                start_date TEXT,
+                end_date TEXT,
+                days INTEGER,
+                reason TEXT,
+                status TEXT DEFAULT 'Pending',
+                FOREIGN KEY (emp_id) REFERENCES employees(emp_id)
+            )
+        ''')
+        # Performance Table
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS performance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_id TEXT,
+                review_date TEXT,
+                rating REAL,
+                comments TEXT,
+                FOREIGN KEY (emp_id) REFERENCES employees(emp_id)
+            )
+        ''')
+        self.conn.commit()
+
+    # ====================== ADD STAFF ======================
+    def add_staff(self):
+        print("\n── Add New Staff ──")
+        emp_id = input("Employee ID (e.g. MA1001): ").strip().upper()
+        name = input("Full Name: ").strip().title()
+        position = input("Position: ").strip().title()
+        department = input("Department: ").strip().title()
+        salary = float(input("Monthly Salary (KES): ") or 0)
+        hire_date = input("Hire Date (YYYY-MM-DD): ").strip() or datetime.now().strftime("%Y-%m-%d")
+
+        try:
+            self.cursor.execute('''
+                INSERT INTO employees VALUES (?, ?, ?, ?, ?, ?, 'Active')
+            ''', (emp_id, name, position, department, salary, hire_date))
+            self.conn.commit()
+            print(f"✅ {name} added successfully!")
+        except sqlite3.IntegrityError:
+            print(f"❌ Employee ID {emp_id} already exists!")
+
+    # ====================== VIEW ALL STAFF ======================
+    def view_all_staff(self):
+        self.cursor.execute("SELECT * FROM employees ORDER BY department, name")
+        rows = self.cursor.fetchall()
+        if not rows:
+            print("No staff found.")
+            return
+        print("\n" + "="*110)
+        print("MOTHER AMADEA MISSION HOSPITAL - STAFF DIRECTORY")
+        print("="*110)
+        print(f"{'ID':<10} {'Name':<25} {'Position':<22} {'Department':<18} {'Salary':<15} {'Hire Date':<12}")
+        print("="*110)
+        for row in rows:
+            print(f"{row[0]:<10} {row[1]:<25} {row[2]:<22} {row[3]:<18} KES {row[4]:<12,.0f} {row[5]}")
+        print("="*110)
+
+    # ====================== LEAVE MANAGEMENT ======================
+    def apply_leave(self):
+        emp_id = input("\nEnter Employee ID: ").strip().upper()
+        print("Leave Types: 1. Annual   2. Sick   3. Maternity   4. Emergency")
+        leave_type = input("Choose type (1-4): ")
+        types = {"1":"Annual", "2":"Sick", "3":"Maternity", "4":"Emergency"}
+        leave_type = types.get(leave_type, "Annual")
+
+        start_date = input("Start Date (YYYY-MM-DD): ")
+        end_date = input("End Date (YYYY-MM-DD): ")
+        reason = input("Reason: ").strip()
+
+        try:
+            from datetime import datetime
+            days = (datetime.strptime(end_date, "%Y-%m-%d") - datetime.strptime(start_date, "%Y-%m-%d")).days + 1
+        except:
+            days = 1
+
+        self.cursor.execute('''
+            INSERT INTO leaves (emp_id, leave_type, start_date, end_date, days, reason)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (emp_id, leave_type, start_date, end_date, days, reason))
+        self.conn.commit()
+        print(f"✅ Leave application submitted for {emp_id} ({days} days)")
+
+    def view_leaves(self):
+        self.cursor.execute("SELECT * FROM leaves ORDER BY start_date DESC")
+        rows = self.cursor.fetchall()
+        if not rows:
+            print("No leave records found.")
+            return
+        print("\nLeave Records:")
+        for row in rows:
+            print(f"ID: {row[0]} | Emp: {row[1]} | {row[2]} Leave | {row[3]} to {row[4]} ({row[5]} days) | Status: {row[7]}")
+
+    # ====================== PERFORMANCE RATING ======================
+    def add_performance(self):
+        emp_id = input("\nEnter Employee ID: ").strip().upper()
+        rating = float(input("Performance Rating (1.0 - 5.0): "))
+        comments = input("Comments: ").strip()
+        review_date = datetime.now().strftime("%Y-%m-%d")
+
+        self.cursor.execute('''
+            INSERT INTO performance (emp_id, review_date, rating, comments)
+            VALUES (?, ?, ?, ?)
+        ''', (emp_id, review_date, rating, comments))
+        self.conn.commit()
+        print(f"✅ Performance rating added for {emp_id}")
+
+    # ====================== SALARY SLIP GENERATION ======================
+    def generate_salary_slip(self):
+        emp_id = input("\nEnter Employee ID for Salary Slip: ").strip().upper()
+        self.cursor.execute("SELECT name, position, department, salary FROM employees WHERE emp_id=?", (emp_id,))
+        row = self.cursor.fetchone()
+        if not row:
+            print("Employee not found!")
+            return
+
+        name, position, department, salary = row
+        month = datetime.now().strftime("%B %Y")
+        print("\n" + "="*60)
+        print("          MOTHER AMADEA MISSION HOSPITAL")
+        print("                 SALARY SLIP")
+        print("="*60)
+        print(f"Employee ID   : {emp_id}")
+        print(f"Name          : {name}")
+        print(f"Position      : {position}")
+        print(f"Department    : {department}")
+        print(f"Month         : {month}")
+        print("-"*60)
+        print(f"Basic Salary  : KES {salary:,.2f}")
+        print(f"Net Pay       : KES {salary:,.2f}")
+        print("="*60)
+        print("Thank you for your service!")
+
+    # ====================== DEPARTMENT-WISE SUMMARY ======================
+    def department_summary(self):
+        self.cursor.execute("""
+            SELECT department, COUNT(*) as total, 
+                   SUM(salary) as total_salary 
+            FROM employees 
+            GROUP BY department 
+            ORDER BY total DESC
+        """)
+        rows = self.cursor.fetchall()
+        print("\nDEPARTMENT-WISE SUMMARY")
+        print("="*70)
+        print(f"{'Department':<20} {'Staff Count':<15} {'Total Salary (KES)':<20}")
+        print("="*70)
+        for row in rows:
+            print(f"{row[0]:<20} {row[1]:<15} KES {row[2]:<20,.0f}")
+        print("="*70)
+
+    # ====================== MAIN MENU ======================
+    def run(self):
+        print("\n🏥 Welcome to Mother Amadea Mission Hospital - HR System")
+        while True:
+            print("\n" + "-"*65)
+            print("1. Add New Staff")
+            print("2. View All Staff")
+            print("3. Apply for Leave")
+            print("4. View All Leaves")
+            print("5. Add Performance Rating")
+            print("6. Generate Salary Slip")
+            print("7. Department-wise Summary")
+            print("8. Exit")
+            print("-"*65)
+            choice = input("Enter your choice (1-8): ").strip()
+
+            if choice == "1":
+                self.add_staff()
+            elif choice == "2":
+                self.view_all_staff()
+            elif choice == "3":
+                self.apply_leave()
+            elif choice == "4":
+                self.view_leaves()
+            elif choice == "5":
+                self.add_performance()
+            elif choice == "6":
+                self.generate_salary_slip()
+            elif choice == "7":
+                self.department_summary()
+            elif choice == "8":
+                self.conn.close()
+                print("\nThank you for using Mother Amadea HR System!")
+                break
+            else:
+                print("Invalid choice!")
+
+if __name__ == "__main__":
+    system = MotherAmadeaHR()
+    system.run()
