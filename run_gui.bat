@@ -1,4 +1,5 @@
 @echo off
 cd /d "%~dp0"
-python hr_gui.py
+python -m streamlit run app.py
 pause
+

@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Streamlit
+.cache/
+
+# Local database
+hospital_hr.db
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db

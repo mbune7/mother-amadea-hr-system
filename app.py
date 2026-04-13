@@ -1,30 +1,44 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
+from datetime import datetime, date
 import io
-from datetime import datetime, date, timedelta
 
 st.set_page_config(page_title="Mother Amadea HR System", page_icon="🏥", layout="wide")
 
-# ==================== CUSTOM CSS ====================
 st.markdown("""
 <style>
-    .card {background: white; padding: 20px; border-radius: 16px; box-shadow: 0 6px 16px rgba(0,0,0,0.08); margin: 10px 0;}
-    .profile-card {background: white; padding: 30px; border-radius: 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.1); margin: 10px 0;}
-    h1, h2, h3 {color: #1e3a8a;}
-    .stMetric {background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);}
-    .badge-active {background:#10b981;color:white;padding:4px 12px;border-radius:20px;font-size:13px;}
-    .badge-inactive {background:#ef4444;color:white;padding:4px 12px;border-radius:20px;font-size:13px;}
-    .badge-pending {background:#f59e0b;color:white;padding:4px 12px;border-radius:20px;font-size:13px;}
-    .dept-card {background: linear-gradient(135deg, #1e3a8a, #3b82f6); color: white; padding: 20px; border-radius: 16px; margin: 8px 0; cursor: pointer;}
-    .kpi-bar {background: #e5e7eb; border-radius: 10px; height: 10px; margin: 6px 0;}
-    .kpi-fill {background: #1e3a8a; border-radius: 10px; height: 10px;}
+    .card {background: white; padding: 20px; border-radius: 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); margin: 10px 0;}
+    .profile-card {background: linear-gradient(135deg, #1e3a8a, #2563eb); color: white; padding: 24px; border-radius: 16px; margin-bottom: 16px;}
+    .badge {display:inline-block; padding:4px 12px; border-radius:20px; font-size:13px; font-weight:600;}
+    .badge-green {background:#d1fae5; color:#065f46;}
+    .badge-red {background:#fee2e2; color:#991b1b;}
+    .badge-yellow {background:#fef3c7; color:#92400e;}
+    .badge-blue {background:#dbeafe; color:#1e40af;}
+    h1,h2,h3 {color:#1e3a8a;}
+    .stMetric {background:white; padding:15px; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,0.06);}
+    .section-header {background:#f0f4ff; padding:12px 16px; border-radius:10px; border-left:4px solid #1e3a8a; margin:16px 0 12px 0;}
 </style>
 """, unsafe_allow_html=True)
 
 # ==================== DATABASE ====================
 def get_conn():
     return sqlite3.connect("hospital_hr.db", check_same_thread=False)
+
+
+def column_exists(cursor, table, column_name):
+    cursor.execute(f"PRAGMA table_info({table})")
+    return column_name in [row[1] for row in cursor.fetchall()]
+
+
+def add_column_if_missing(cursor, table, column_name, column_definition, copy_from=None):
+    if not column_exists(cursor, table, column_name):
+        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column_name} {column_definition}")
+        if copy_from is not None and column_exists(cursor, table, copy_from):
+            cursor.execute(
+                f"UPDATE {table} SET {column_name} = {copy_from} WHERE {copy_from} IS NOT NULL"
+            )
+
 
 def init_db():
     conn = get_conn()
@@ -40,31 +54,18 @@ def init_db():
             phone TEXT DEFAULT '',
             email TEXT DEFAULT '',
             national_id TEXT DEFAULT '',
-            gender TEXT DEFAULT '',
-            dob TEXT DEFAULT '',
-            employment_type TEXT DEFAULT 'Full Time',
-            status TEXT DEFAULT 'Active',
             emergency_contact TEXT DEFAULT '',
-            address TEXT DEFAULT '',
-            nhif TEXT DEFAULT '',
-            nssf TEXT DEFAULT '',
-            kra_pin TEXT DEFAULT ''
-        );
-        CREATE TABLE IF NOT EXISTS departments (
-            dept_name TEXT PRIMARY KEY,
-            description TEXT,
-            head TEXT DEFAULT '',
+            emergency_phone TEXT DEFAULT '',
+            gender TEXT DEFAULT '',
+            employment_type TEXT DEFAULT 'Full-Time',
             status TEXT DEFAULT 'Active'
         );
-        CREATE TABLE IF NOT EXISTS attendance (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            emp_id TEXT NOT NULL,
-            attendance_date TEXT NOT NULL,
-            clock_in TEXT DEFAULT '',
-            clock_out TEXT DEFAULT '',
-            status TEXT NOT NULL,
-            notes TEXT,
-            FOREIGN KEY (emp_id) REFERENCES employees(emp_id)
+        CREATE TABLE IF NOT EXISTS departments (
+            dept_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dept_name TEXT UNIQUE NOT NULL,
+            description TEXT DEFAULT '',
+            head TEXT DEFAULT '',
+            status TEXT DEFAULT 'Active'
         );
         CREATE TABLE IF NOT EXISTS payroll (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,14 +73,14 @@ def init_db():
             month TEXT NOT NULL,
             basic_salary REAL DEFAULT 0,
             house_allowance REAL DEFAULT 0,
-            transport REAL DEFAULT 0,
-            medical REAL DEFAULT 0,
-            other_allowances REAL DEFAULT 0,
-            paye REAL DEFAULT 0,
+            transport_allowance REAL DEFAULT 0,
+            medical_allowance REAL DEFAULT 0,
+            other_allowance REAL DEFAULT 0,
             nssf REAL DEFAULT 0,
             nhif REAL DEFAULT 0,
+            paye REAL DEFAULT 0,
             loan_deduction REAL DEFAULT 0,
-            other_deductions REAL DEFAULT 0,
+            other_deduction REAL DEFAULT 0,
             gross REAL DEFAULT 0,
             total_deductions REAL DEFAULT 0,
             net REAL DEFAULT 0,
@@ -92,11 +93,21 @@ def init_db():
             leave_type TEXT NOT NULL,
             start_date TEXT NOT NULL,
             end_date TEXT NOT NULL,
-            days INTEGER DEFAULT 0,
+            days INTEGER NOT NULL,
             reason TEXT DEFAULT '',
             status TEXT DEFAULT 'Pending',
             approved_by TEXT DEFAULT '',
-            applied_on TEXT DEFAULT '',
+            applied_date TEXT DEFAULT '',
+            FOREIGN KEY (emp_id) REFERENCES employees(emp_id)
+        );
+        CREATE TABLE IF NOT EXISTS attendance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            emp_id TEXT NOT NULL,
+            att_date TEXT NOT NULL,
+            clock_in TEXT DEFAULT '',
+            clock_out TEXT DEFAULT '',
+            status TEXT DEFAULT 'Present',
+            notes TEXT DEFAULT '',
             FOREIGN KEY (emp_id) REFERENCES employees(emp_id)
         );
         CREATE TABLE IF NOT EXISTS kpi (
@@ -105,11 +116,11 @@ def init_db():
             month TEXT NOT NULL,
             attendance_score REAL DEFAULT 0,
             punctuality_score REAL DEFAULT 0,
-            patient_satisfaction REAL DEFAULT 0,
-            task_completion REAL DEFAULT 0,
-            teamwork REAL DEFAULT 0,
+            satisfaction_score REAL DEFAULT 0,
+            task_score REAL DEFAULT 0,
+            teamwork_score REAL DEFAULT 0,
             overall_score REAL DEFAULT 0,
-            remarks TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
             FOREIGN KEY (emp_id) REFERENCES employees(emp_id)
         );
         CREATE TABLE IF NOT EXISTS training (
@@ -121,201 +132,87 @@ def init_db():
             end_date TEXT DEFAULT '',
             status TEXT DEFAULT 'Scheduled',
             certificate TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
             FOREIGN KEY (emp_id) REFERENCES employees(emp_id)
+        );
+        CREATE TABLE IF NOT EXISTS recruitment (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            position TEXT NOT NULL,
+            department TEXT NOT NULL,
+            posted_date TEXT DEFAULT '',
+            deadline TEXT DEFAULT '',
+            applicants INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'Open',
+            notes TEXT DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS announcements (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
             message TEXT NOT NULL,
-            posted_by TEXT DEFAULT 'HR',
-            posted_on TEXT DEFAULT '',
-            priority TEXT DEFAULT 'Normal'
-        );
-        CREATE TABLE IF NOT EXISTS recruitment (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            job_title TEXT NOT NULL,
-            department TEXT NOT NULL,
-            positions INTEGER DEFAULT 1,
-            deadline TEXT DEFAULT '',
-            status TEXT DEFAULT 'Open',
-            applicants INTEGER DEFAULT 0,
-            posted_on TEXT DEFAULT ''
+            posted_by TEXT DEFAULT 'HR Admin',
+            posted_date TEXT DEFAULT '',
+            priority TEXT DEFAULT 'Normal',
+            target TEXT DEFAULT 'All Staff'
         );
     ''')
-    conn.commit()
 
-    # Seed departments if empty
+    add_column_if_missing(c, 'employees', 'phone', "TEXT DEFAULT ''")
+    add_column_if_missing(c, 'employees', 'email', "TEXT DEFAULT ''")
+    add_column_if_missing(c, 'employees', 'national_id', "TEXT DEFAULT ''")
+    add_column_if_missing(c, 'employees', 'emergency_contact', "TEXT DEFAULT ''")
+    add_column_if_missing(c, 'employees', 'emergency_phone', "TEXT DEFAULT ''")
+    add_column_if_missing(c, 'employees', 'gender', "TEXT DEFAULT ''")
+    add_column_if_missing(c, 'employees', 'employment_type', "TEXT DEFAULT 'Full-Time'")
+    add_column_if_missing(c, 'employees', 'status', "TEXT DEFAULT 'Active'")
+    add_column_if_missing(c, 'departments', 'head', "TEXT DEFAULT ''")
+    add_column_if_missing(c, 'departments', 'status', "TEXT DEFAULT 'Active'")
+    add_column_if_missing(c, 'payroll', 'transport_allowance', 'REAL DEFAULT 0', copy_from='transport')
+    add_column_if_missing(c, 'payroll', 'other_allowance', 'REAL DEFAULT 0', copy_from='other_allowances')
+    add_column_if_missing(c, 'payroll', 'other_deduction', 'REAL DEFAULT 0', copy_from='other_deductions')
+    add_column_if_missing(c, 'leaves', 'applied_date', "TEXT DEFAULT ''", copy_from='applied_on')
+    add_column_if_missing(c, 'attendance', 'att_date', "TEXT DEFAULT ''", copy_from='attendance_date')
+    add_column_if_missing(c, 'announcements', 'posted_date', "TEXT DEFAULT ''", copy_from='posted_on')
+    add_column_if_missing(c, 'announcements', 'target', "TEXT DEFAULT 'All Staff'")
+    add_column_if_missing(c, 'recruitment', 'position', "TEXT DEFAULT ''", copy_from='job_title')
+    add_column_if_missing(c, 'recruitment', 'posted_date', "TEXT DEFAULT ''", copy_from='posted_on')
+    add_column_if_missing(c, 'recruitment', 'deadline', "TEXT DEFAULT ''")
+    add_column_if_missing(c, 'recruitment', 'notes', "TEXT DEFAULT ''")
+    add_column_if_missing(c, 'kpi', 'satisfaction_score', 'REAL DEFAULT 0', copy_from='patient_satisfaction')
+    add_column_if_missing(c, 'kpi', 'task_score', 'REAL DEFAULT 0', copy_from='task_completion')
+    add_column_if_missing(c, 'kpi', 'teamwork_score', 'REAL DEFAULT 0', copy_from='teamwork')
+    add_column_if_missing(c, 'kpi', 'notes', "TEXT DEFAULT ''", copy_from='remarks')
+
     c.execute("SELECT COUNT(*) FROM departments")
     if c.fetchone()[0] == 0:
         depts = [
-            ("ANC", "Antenatal Clinic", "Sr. Nurse", "Active"),
-            ("Administration", "Hospital Administration", "Admin Officer", "Active"),
-            ("CWC", "Child Welfare Clinic", "Nurse In-Charge", "Active"),
-            ("Lab", "Laboratory Services", "Lab Manager", "Active"),
-            ("OPD", "Outpatient Department", "Dr. Grace Mwangi", "Active"),
-            ("Pharmacy", "Pharmacy Department", "Pharmacist", "Active"),
-            ("Radiology", "Radiology & Imaging", "Radiologist", "Active"),
-            ("Theatre 1", "Operating Theatre 1", "Theatre Nurse", "Active"),
-            ("Theatre 2", "Operating Theatre 2", "Theatre Nurse", "Active"),
+            ("ANC", "Antenatal Clinic", ""),
+            ("Administration", "Hospital Administration", ""),
+            ("CWC", "Child Welfare Clinic", ""),
+            ("Lab", "Laboratory Services", ""),
+            ("OPD", "Outpatient Department", ""),
+            ("Pharmacy", "Pharmacy Department", ""),
+            ("Radiology", "Radiology & Imaging", ""),
+            ("Theatre 1", "Operating Theatre 1", ""),
+            ("Theatre 2", "Operating Theatre 2", ""),
+            ("Maternity", "Maternity Ward", ""),
         ]
-        c.executemany("INSERT OR IGNORE INTO departments VALUES (?,?,?,?)", depts)
-
-    # Seed sample employees if empty
-    c.execute("SELECT COUNT(*) FROM employees")
-    if c.fetchone()[0] == 0:
-        employees = [
-            ("MAMH-001","Dr. Grace Mwangi","Medical Officer","OPD",211553,"2020-01-15","0712345001","grace@amadea.co.ke","12345001","Female","1985-03-10","Full Time","Active","John Mwangi: 0712000001","Mombasa","NH001","NS001","A001234567B"),
-            ("MAMH-002","Dr. James Okonkwo","Medical Officer","OPD",217963,"2019-06-01","0712345002","james@amadea.co.ke","12345002","Male","1982-07-22","Full Time","Active","Mary Okonkwo: 0712000002","Mombasa","NH002","NS002","A002234567B"),
-            ("MAMH-003","Jane Atieno","Registered Nurse","Maternity",52719,"2021-03-01","0712345003","jane@amadea.co.ke","12345003","Female","1990-11-05","Full Time","Active","Peter Atieno: 0712000003","Mombasa","NH003","NS003","A003234567B"),
-            ("MAMH-004","Peter Kamau","Enrolled Nurse","CWC",50592,"2021-07-15","0712345004","peter@amadea.co.ke","12345004","Male","1992-02-14","Full Time","Active","Grace Kamau: 0712000004","Mombasa","NH004","NS004","A004234567B"),
-            ("MAMH-005","Mary Njeri","Enrolled Nurse","ANC",51945,"2022-01-10","0712345005","mary@amadea.co.ke","12345005","Female","1993-08-30","Full Time","Active","James Njeri: 0712000005","Mombasa","NH005","NS005","A005234567B"),
-        ]
-        c.executemany("INSERT OR IGNORE INTO employees VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", employees)
-
-    # Seed payroll if empty
-    c.execute("SELECT COUNT(*) FROM payroll")
-    if c.fetchone()[0] == 0:
-        month = "2026-04"
-        payroll_data = [
-            ("MAMH-001", month, 150000, 30000, 15000, 10000, 6553, 35000, 1080, 1700, 0, 2220, 211553, 40000, 171553, "Paid"),
-            ("MAMH-002", month, 155000, 31000, 15000, 10000, 6963, 36000, 1080, 1700, 0, 1220, 217963, 40000, 177963, "Paid"),
-            ("MAMH-003", month, 38000, 7000, 4000, 2000, 1719, 4500, 720, 1700, 0, 80, 52719, 7000, 45719, "Paid"),
-            ("MAMH-004", month, 36000, 7000, 4000, 2000, 1592, 4200, 720, 1700, 0, 380, 50592, 7000, 43592, "Paid"),
-            ("MAMH-005", month, 37000, 7000, 4000, 2000, 1945, 4300, 720, 1700, 0, 280, 51945, 7000, 44945, "Paid"),
-        ]
-        c.executemany("INSERT OR IGNORE INTO payroll (emp_id,month,basic_salary,house_allowance,transport,medical,other_allowances,paye,nssf,nhif,loan_deduction,other_deductions,gross,total_deductions,net,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", payroll_data)
-
+        c.executemany("INSERT OR IGNORE INTO departments (dept_name, description, head) VALUES (?,?,?)", depts)
     conn.commit()
     conn.close()
 
 init_db()
 
-# ==================== HELPERS ====================
-def get_employees():
-    conn = get_conn()
-    df = pd.read_sql("SELECT * FROM employees ORDER BY department, name", conn)
-    conn.close()
-    return df
-
-def get_departments():
-    conn = get_conn()
-    df = pd.read_sql("SELECT * FROM departments ORDER BY dept_name", conn)
-    conn.close()
-    return df
-
-def get_payroll(month=None):
-    conn = get_conn()
-    if month:
-        df = pd.read_sql(f"SELECT p.*, e.name, e.department, e.position FROM payroll p JOIN employees e ON p.emp_id=e.emp_id WHERE p.month='{month}' ORDER BY e.name", conn)
-    else:
-        df = pd.read_sql("SELECT p.*, e.name, e.department, e.position FROM payroll p JOIN employees e ON p.emp_id=e.emp_id ORDER BY p.month DESC, e.name", conn)
-    conn.close()
-    return df
-
-def get_leaves():
-    conn = get_conn()
-    df = pd.read_sql("SELECT l.*, e.name, e.department FROM leaves l JOIN employees e ON l.emp_id=e.emp_id ORDER BY l.id DESC", conn)
-    conn.close()
-    return df
-
-def get_kpi(month=None):
-    conn = get_conn()
-    if month:
-        df = pd.read_sql(f"SELECT k.*, e.name, e.department FROM kpi k JOIN employees e ON k.emp_id=e.emp_id WHERE k.month='{month}' ORDER BY k.overall_score DESC", conn)
-    else:
-        df = pd.read_sql("SELECT k.*, e.name, e.department FROM kpi k JOIN employees e ON k.emp_id=e.emp_id ORDER BY k.month DESC, k.overall_score DESC", conn)
-    conn.close()
-    return df
-
-def generate_payslip_text(emp, pay):
-    return f"""
-================================================================================
-                    MOTHER AMADEA MISSION HOSPITAL
-                      EMPLOYEE PAY SLIP — {pay.get('month','')
-}
-================================================================================
-Employee Name   : {emp['name']}
-Employee ID     : {emp['emp_id']}
-Position        : {emp['position']}
-Department      : {emp['department']}
-NHIF No         : {emp.get('nhif','')}
-NSSF No         : {emp.get('nssf','')}
-KRA PIN         : {emp.get('kra_pin','')}
-================================================================================
-EARNINGS
---------------------------------------------------------------------------------
-Basic Salary                        KES {pay.get('basic_salary',0):>12,.2f}
-House Allowance                     KES {pay.get('house_allowance',0):>12,.2f}
-Transport Allowance                 KES {pay.get('transport',0):>12,.2f}
-Medical Allowance                   KES {pay.get('medical',0):>12,.2f}
-Other Allowances                    KES {pay.get('other_allowances',0):>12,.2f}
---------------------------------------------------------------------------------
-GROSS PAY                           KES {pay.get('gross',0):>12,.2f}
-================================================================================
-DEDUCTIONS
---------------------------------------------------------------------------------
-PAYE (Tax)                          KES {pay.get('paye',0):>12,.2f}
-NSSF                                KES {pay.get('nssf',0):>12,.2f}
-NHIF                                KES {pay.get('nhif',0):>12,.2f}
-Loan Deduction                      KES {pay.get('loan_deduction',0):>12,.2f}
-Other Deductions                    KES {pay.get('other_deductions',0):>12,.2f}
---------------------------------------------------------------------------------
-TOTAL DEDUCTIONS                    KES {pay.get('total_deductions',0):>12,.2f}
-================================================================================
-NET PAY                             KES {pay.get('net',0):>12,.2f}
-================================================================================
-Generated on: {datetime.now().strftime('%d %B %Y %H:%M')}
-This is a computer-generated payslip — no signature required.
-================================================================================
-"""
-
-def generate_leave_letter(emp, leave):
-    return f"""
-================================================================================
-                    MOTHER AMADEA MISSION HOSPITAL
-                         LEAVE APPROVAL LETTER
-================================================================================
-Date: {datetime.now().strftime('%d %B %Y')}
-
-To: {emp['name']}
-    {emp['position']}
-    {emp['department']} Department
-
-Dear {emp['name'].split()[0]},
-
-RE: APPROVAL OF {leave.get('leave_type','').upper()} LEAVE
-
-This is to confirm that your application for {leave.get('leave_type','')} Leave
-has been reviewed and {leave.get('status','Approved').upper()}.
-
-Leave Details:
-  Leave Type    : {leave.get('leave_type','')}
-  Start Date    : {leave.get('start_date','')}
-  End Date      : {leave.get('end_date','')}
-  Total Days    : {leave.get('days','')} days
-  Reason        : {leave.get('reason','')}
-
-You are expected to report back to duty on {leave.get('end_date','')}.
-
-Please ensure proper handover before proceeding on leave.
-
-Yours sincerely,
-
-_______________________
-HR Manager
-Mother Amadea Mission Hospital
-Mombasa
-
-================================================================================
-"""
-
 # ==================== LOGIN ====================
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
-if "selected_staff" not in st.session_state:
-    st.session_state.selected_staff = None
-if "selected_dept" not in st.session_state:
-    st.session_state.selected_dept = None
+if "current_user" not in st.session_state:
+    st.session_state.current_user = "HR Admin"
+
+USERS = {
+    "admin": {"password": "amadea2026", "role": "Admin", "name": "HR Admin"},
+    "hr": {"password": "hr2026", "role": "HR Manager", "name": "HR Manager"},
+    "viewer": {"password": "view2026", "role": "Viewer", "name": "Viewer"},
+}
 
 if not st.session_state.logged_in:
     st.title("🏥 Mother Amadea Mission Hospital")
@@ -323,981 +220,931 @@ if not st.session_state.logged_in:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         try:
-            st.image("amadea_logo.png", width=240)
+            st.image("amadea_logo.png", width=220)
         except:
             st.markdown("### 🏥 Mother Amadea")
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
-        if st.button("Login", type="primary", use_container_width=True):
-            if username == "admin" and password == "12345":
+        if st.button("🔐 Login", type="primary", use_container_width=True):
+            if username in USERS and USERS[username]["password"] == password:
                 st.session_state.logged_in = True
+                st.session_state.current_user = USERS[username]["name"]
+                st.session_state.role = USERS[username]["role"]
+                st.success("✅ Login Successful!")
                 st.rerun()
             else:
-                st.error("❌ Invalid credentials")
+                st.error("❌ Invalid username or password")
+        st.caption("Default: admin / amadea2026")
     st.stop()
 
 # ==================== SIDEBAR ====================
-try:
-    st.sidebar.image("amadea_logo.png", width=150)
-except:
-    pass
-st.sidebar.title("Mother Amadea")
-st.sidebar.subheader("Mission Hospital")
-st.sidebar.success(f"Welcome — {datetime.now().strftime('%B %Y')}")
+with st.sidebar:
+    try:
+        st.image("amadea_logo.png", width=140)
+    except:
+        st.markdown("## 🏥")
+    st.markdown(f"**Mother Amadea Mission Hospital**")
+    st.caption(f"👤 {st.session_state.current_user} | {datetime.now().strftime('%d %b %Y')}")
+    st.markdown("---")
 
-menu = st.sidebar.radio("Navigation", [
-    "📊 Dashboard",
-    "👥 Staff Directory",
-    "🏢 Departments",
-    "💰 Payroll",
-    "📅 Shift Scheduling",
-    "⏰ Attendance",
-    "🌴 Leave Management",
-    "📈 KPI Dashboard",
-    "🎓 Training",
-    "📢 Announcements",
-    "🧑‍💼 Recruitment",
-    "📋 Reports"
-])
+    menu = st.radio("Navigation", [
+        "📊 Dashboard",
+        "👥 Staff Directory",
+        "🏢 Departments",
+        "💰 Payroll",
+        "🌴 Leave Management",
+        "⏰ Attendance",
+        "📈 KPI Dashboard",
+        "🎓 Training",
+        "📢 Recruitment",
+        "📣 Announcements",
+        "📋 Reports",
+    ])
+    st.markdown("---")
+    if st.button("🚪 Logout", use_container_width=True):
+        st.session_state.logged_in = False
+        st.rerun()
 
-if st.sidebar.button("🚪 Logout"):
-    st.session_state.logged_in = False
-    st.rerun()
+conn = get_conn()
+
+# ==================== HELPERS ====================
+def get_employees():
+    return pd.read_sql("SELECT * FROM employees ORDER BY department, name", conn)
+
+def get_departments():
+    return pd.read_sql("SELECT * FROM departments ORDER BY dept_name", conn)
+
+def get_dept_names():
+    df = get_departments()
+    return df["dept_name"].tolist() if not df.empty else []
+
+def employee_selector(label="Select Employee", key=None):
+    emp_df = get_employees()
+    if emp_df.empty:
+        st.warning("No employees found. Please add employees first.")
+        return None, None
+    options = [f"{r['emp_id']} — {r['name']}" for _, r in emp_df.iterrows()]
+    widget_key = key or f"employee_selector_{label.replace(' ', '_').lower()}"
+    sel = st.selectbox(label, options, key=widget_key)
+    emp_id = sel.split(" — ")[0]
+    return emp_id, emp_df[emp_df["emp_id"] == emp_id].iloc[0]
+
+def generate_payslip_text(emp, pay):
+    lines = []
+    lines.append("=" * 55)
+    lines.append("     MOTHER AMADEA MISSION HOSPITAL")
+    lines.append("           PAYSLIP / PAY ADVICE")
+    lines.append("=" * 55)
+    lines.append(f"Employee Name   : {emp['name']}")
+    lines.append(f"Employee ID     : {emp['emp_id']}")
+    lines.append(f"Position        : {emp['position']}")
+    lines.append(f"Department      : {emp['department']}")
+    lines.append(f"Pay Month       : {pay['month']}")
+    lines.append(f"Employment Type : {emp.get('employment_type','Full-Time')}")
+    lines.append("-" * 55)
+    lines.append("EARNINGS")
+    lines.append(f"  Basic Salary          : KES {pay['basic_salary']:>12,.2f}")
+    lines.append(f"  House Allowance       : KES {pay['house_allowance']:>12,.2f}")
+    lines.append(f"  Transport Allowance   : KES {pay['transport_allowance']:>12,.2f}")
+    lines.append(f"  Medical Allowance     : KES {pay['medical_allowance']:>12,.2f}")
+    lines.append(f"  Other Allowance       : KES {pay['other_allowance']:>12,.2f}")
+    lines.append(f"  GROSS SALARY          : KES {pay['gross']:>12,.2f}")
+    lines.append("-" * 55)
+    lines.append("DEDUCTIONS")
+    lines.append(f"  NSSF                  : KES {pay['nssf']:>12,.2f}")
+    lines.append(f"  NHIF                  : KES {pay['nhif']:>12,.2f}")
+    lines.append(f"  PAYE (Tax)            : KES {pay['paye']:>12,.2f}")
+    lines.append(f"  Loan Deduction        : KES {pay['loan_deduction']:>12,.2f}")
+    lines.append(f"  Other Deduction       : KES {pay['other_deduction']:>12,.2f}")
+    lines.append(f"  TOTAL DEDUCTIONS      : KES {pay['total_deductions']:>12,.2f}")
+    lines.append("=" * 55)
+    lines.append(f"  NET PAY               : KES {pay['net']:>12,.2f}")
+    lines.append("=" * 55)
+    lines.append("This is a computer-generated payslip.")
+    lines.append(f"Generated on: {datetime.now().strftime('%d %b %Y %H:%M')}")
+    return "\n".join(lines)
+
+def generate_leave_letter(emp, leave):
+    lines = []
+    lines.append("MOTHER AMADEA MISSION HOSPITAL")
+    lines.append("P.O. Box — Mombasa, Kenya")
+    lines.append("")
+    lines.append(f"Date: {datetime.now().strftime('%d %B %Y')}")
+    lines.append("")
+    lines.append("TO: " + emp['name'])
+    lines.append(f"    {emp['position']}, {emp['department']}")
+    lines.append(f"    ID: {emp['emp_id']}")
+    lines.append("")
+    lines.append(f"RE: APPROVAL OF {leave['leave_type'].upper()} LEAVE")
+    lines.append("")
+    lines.append("Dear " + emp['name'].split()[0] + ",")
+    lines.append("")
+    lines.append(f"We write to confirm that your application for {leave['leave_type']} Leave")
+    lines.append(f"has been reviewed and APPROVED as follows:")
+    lines.append("")
+    lines.append(f"  Leave Type    : {leave['leave_type']}")
+    lines.append(f"  Start Date    : {leave['start_date']}")
+    lines.append(f"  End Date      : {leave['end_date']}")
+    lines.append(f"  Total Days    : {leave['days']} day(s)")
+    lines.append(f"  Reason        : {leave['reason']}")
+    lines.append("")
+    lines.append("You are expected to resume duty on the next working day after your leave ends.")
+    lines.append("Please ensure proper handover of your duties before proceeding on leave.")
+    lines.append("")
+    lines.append("Yours faithfully,")
+    lines.append("")
+    lines.append("_________________________")
+    lines.append("HR Manager")
+    lines.append("Mother Amadea Mission Hospital")
+    lines.append(f"Date: {datetime.now().strftime('%d %B %Y')}")
+    return "\n".join(lines)
 
 # ====================== DASHBOARD ======================
 if menu == "📊 Dashboard":
     st.title("📊 Dashboard")
-    st.caption(f"Welcome back — {datetime.now().strftime('%A, %d %B %Y')}")
+    st.caption(f"Welcome, {st.session_state.current_user} — {datetime.now().strftime('%A, %d %B %Y')}")
 
     emp_df = get_employees()
-    total = len(emp_df)
-    depts = len(get_departments())
+    total_staff = len(emp_df)
+    active_staff = len(emp_df[emp_df["status"] == "Active"]) if not emp_df.empty else 0
+    dept_count = len(get_departments())
+    pay_df = pd.read_sql(f"SELECT * FROM payroll WHERE month='{datetime.now().strftime('%B %Y')}'", conn)
+    net_payroll = pay_df["net"].sum() if not pay_df.empty else 0
+    leave_df = pd.read_sql("SELECT * FROM leaves WHERE status='Pending'", conn)
+    pending_leaves = len(leave_df)
+    kpi_df = pd.read_sql("SELECT AVG(overall_score) as avg FROM kpi", conn)
+    avg_kpi = kpi_df["avg"].iloc[0] if not kpi_df.empty and kpi_df["avg"].iloc[0] else 0
 
-    conn = get_conn()
-    leaves_pending = pd.read_sql("SELECT COUNT(*) as c FROM leaves WHERE status='Pending'", conn).iloc[0]['c']
-    pay_df = get_payroll("2026-04")
-    net_payroll = pay_df['net'].sum() if len(pay_df) > 0 else 3515002
-    conn.close()
+    c1, c2, c3, c4, c5 = st.columns(5)
+    with c1: st.metric("👥 Total Staff", total_staff)
+    with c2: st.metric("✅ Active", active_staff)
+    with c3: st.metric("🏢 Departments", dept_count)
+    with c4: st.metric("💰 Net Payroll", f"KES {net_payroll:,.0f}" if net_payroll else "Not Set")
+    with c5: st.metric("📈 Avg KPI", f"{avg_kpi:.1f}%" if avg_kpi else "N/A")
 
-    c1, c2, c3, c4 = st.columns(4)
-    with c1: st.metric("Total Staff", total, f"{total} active")
-    with c2: st.metric("Departments", depts)
-    with c3: st.metric("Monthly Payroll", f"KSH {net_payroll:,.0f}")
-    with c4: st.metric("Avg KPI Score", "90.8%")
-
+    st.markdown("---")
     col_a, col_b = st.columns(2)
-    with col_a: st.info(f"📅 **{leaves_pending} Leave Requests** Awaiting approval")
-    with col_b: st.info("🔄 **0 Shift Swap Requests** Pending review")
+    with col_a:
+        st.markdown('<div class="section-header"><strong>⚠️ Pending Actions</strong></div>', unsafe_allow_html=True)
+        if pending_leaves > 0:
+            st.warning(f"🌴 {pending_leaves} Leave Request(s) awaiting approval")
+        else:
+            st.success("✅ No pending leave requests")
+        ann_df = pd.read_sql("SELECT * FROM announcements ORDER BY id DESC LIMIT 3", conn)
+        if not ann_df.empty:
+            st.markdown("**📣 Latest Announcements**")
+            for _, a in ann_df.iterrows():
+                st.info(f"**{a['title']}** — {a['posted_date']}")
 
-    st.subheader("Performance Overview")
-    st.progress(0.917, text="Attendance Rate — 91.7%")
-    st.progress(0.893, text="Punctuality — 89.3%")
-    st.progress(0.905, text="Patient Satisfaction — 90.5%")
-    st.progress(0.919, text="Task Completion — 91.9%")
+    with col_b:
+        st.markdown('<div class="section-header"><strong>📊 Staff by Department</strong></div>', unsafe_allow_html=True)
+        if not emp_df.empty:
+            dept_counts = emp_df.groupby("department").size().reset_index(name="Count")
+            st.dataframe(dept_counts, use_container_width=True, hide_index=True)
 
-    st.subheader("Staff by Department")
-    if len(emp_df) > 0:
-        dept_counts = emp_df.groupby('department').size().reset_index(name='Count')
-        st.bar_chart(dept_counts.set_index('department'))
-
-    conn2 = get_conn()
-    announcements = pd.read_sql("SELECT * FROM announcements ORDER BY id DESC LIMIT 3", conn2)
-    conn2.close()
-    if len(announcements) > 0:
-        st.subheader("📢 Latest Announcements")
-        for _, ann in announcements.iterrows():
-            st.info(f"**{ann['title']}** — {ann['message']}")
+    if not emp_df.empty:
+        st.markdown('<div class="section-header"><strong>👥 Recently Added Staff</strong></div>', unsafe_allow_html=True)
+        recent = emp_df.tail(5)[["emp_id", "name", "position", "department", "hire_date", "status"]]
+        st.dataframe(recent, use_container_width=True, hide_index=True)
 
 # ====================== STAFF DIRECTORY ======================
 elif menu == "👥 Staff Directory":
     st.title("👥 Staff Directory")
+    tab1, tab2, tab3 = st.tabs(["📋 View Staff", "➕ Add Staff", "✏️ Edit / Delete"])
 
-    if st.session_state.selected_staff:
-        # Full staff profile view
-        emp_id = st.session_state.selected_staff
-        conn = get_conn()
-        emp = pd.read_sql(f"SELECT * FROM employees WHERE emp_id='{emp_id}'", conn).iloc[0]
-        pay = pd.read_sql(f"SELECT * FROM payroll WHERE emp_id='{emp_id}' ORDER BY month DESC LIMIT 1", conn)
-        att = pd.read_sql(f"SELECT * FROM attendance WHERE emp_id='{emp_id}' ORDER BY attendance_date DESC LIMIT 10", conn)
-        leaves = pd.read_sql(f"SELECT * FROM leaves WHERE emp_id='{emp_id}' ORDER BY id DESC", conn)
-        kpis = pd.read_sql(f"SELECT * FROM kpi WHERE emp_id='{emp_id}' ORDER BY month DESC LIMIT 1", conn)
-        conn.close()
-
-        if st.button("← Back to Staff Directory"):
-            st.session_state.selected_staff = None
-            st.rerun()
-
-        st.markdown(f"""
-        <div class="profile-card">
-            <h2>👤 {emp['name']}</h2>
-            <p style="color:#6b7280;font-size:16px;">{emp['position']} — {emp['department']}</p>
-            <span class="badge-{'active' if emp['status']=='Active' else 'inactive'}">{emp['status']}</span>
-        </div>
-        """, unsafe_allow_html=True)
-
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 Personal Info", "💰 Payroll", "⏰ Attendance", "🌴 Leaves", "📈 KPI"])
-
-        with tab1:
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("#### Personal Details")
-                st.write(f"**Employee ID:** {emp['emp_id']}")
-                st.write(f"**Full Name:** {emp['name']}")
-                st.write(f"**Gender:** {emp['gender']}")
-                st.write(f"**Date of Birth:** {emp['dob']}")
-                st.write(f"**National ID:** {emp['national_id']}")
-                st.write(f"**Address:** {emp['address']}")
-                st.write(f"**Emergency Contact:** {emp['emergency_contact']}")
-            with col2:
-                st.markdown("#### Employment Details")
-                st.write(f"**Position:** {emp['position']}")
-                st.write(f"**Department:** {emp['department']}")
-                st.write(f"**Hire Date:** {emp['hire_date']}")
-                st.write(f"**Employment Type:** {emp['employment_type']}")
-                st.write(f"**Phone:** {emp['phone']}")
-                st.write(f"**Email:** {emp['email']}")
-                st.write(f"**NHIF No:** {emp['nhif']}")
-                st.write(f"**NSSF No:** {emp['nssf']}")
-                st.write(f"**KRA PIN:** {emp['kra_pin']}")
-
-            st.markdown("---")
-            st.markdown("#### ✏️ Edit Profile")
-            with st.form("edit_profile"):
-                ec1, ec2 = st.columns(2)
-                with ec1:
-                    new_phone = st.text_input("Phone", emp['phone'])
-                    new_email = st.text_input("Email", emp['email'])
-                    new_address = st.text_input("Address", emp['address'])
-                    new_emergency = st.text_input("Emergency Contact", emp['emergency_contact'])
-                with ec2:
-                    new_nhif = st.text_input("NHIF No", emp['nhif'])
-                    new_nssf = st.text_input("NSSF No", emp['nssf'])
-                    new_kra = st.text_input("KRA PIN", emp['kra_pin'])
-                    new_status = st.selectbox("Status", ["Active", "Inactive", "On Leave"], index=["Active","Inactive","On Leave"].index(emp['status']) if emp['status'] in ["Active","Inactive","On Leave"] else 0)
-                if st.form_submit_button("💾 Save Changes", type="primary"):
-                    conn = get_conn()
-                    conn.execute("UPDATE employees SET phone=?,email=?,address=?,emergency_contact=?,nhif=?,nssf=?,kra_pin=?,status=? WHERE emp_id=?",
-                        (new_phone, new_email, new_address, new_emergency, new_nhif, new_nssf, new_kra, new_status, emp_id))
-                    conn.commit()
-                    conn.close()
-                    st.success("✅ Profile updated!")
-                    st.rerun()
-
-        with tab2:
-            if len(pay) > 0:
-                p = pay.iloc[0]
-                st.metric("Gross Pay", f"KSH {p['gross']:,.0f}")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write(f"**Basic Salary:** KSH {p['basic_salary']:,.0f}")
-                    st.write(f"**House Allowance:** KSH {p['house_allowance']:,.0f}")
-                    st.write(f"**Transport:** KSH {p['transport']:,.0f}")
-                    st.write(f"**Medical:** KSH {p['medical']:,.0f}")
-                with col2:
-                    st.write(f"**PAYE:** KSH {p['paye']:,.0f}")
-                    st.write(f"**NSSF:** KSH {p['nssf']:,.0f}")
-                    st.write(f"**NHIF:** KSH {p['nhif']:,.0f}")
-                    st.write(f"**Net Pay:** KSH {p['net']:,.0f}")
-
-                payslip = generate_payslip_text(emp, p)
-                st.download_button("📥 Download Payslip", payslip, file_name=f"Payslip_{emp['emp_id']}_{p['month']}.txt", mime="text/plain")
-            else:
-                st.info("No payroll record found for this employee.")
-
-        with tab3:
-            if len(att) > 0:
-                st.dataframe(att[['attendance_date','clock_in','clock_out','status','notes']], use_container_width=True, hide_index=True)
-            else:
-                st.info("No attendance records yet.")
-
-        with tab4:
-            if len(leaves) > 0:
-                st.dataframe(leaves[['leave_type','start_date','end_date','days','status']], use_container_width=True, hide_index=True)
-            else:
-                st.info("No leave records yet.")
-
-        with tab5:
-            if len(kpis) > 0:
-                k = kpis.iloc[0]
-                st.metric("Overall KPI Score", f"{k['overall_score']:.1f}%")
-                st.progress(k['attendance_score']/100, text=f"Attendance — {k['attendance_score']}%")
-                st.progress(k['punctuality_score']/100, text=f"Punctuality — {k['punctuality_score']}%")
-                st.progress(k['patient_satisfaction']/100, text=f"Patient Satisfaction — {k['patient_satisfaction']}%")
-                st.progress(k['task_completion']/100, text=f"Task Completion — {k['task_completion']}%")
-                st.progress(k['teamwork']/100, text=f"Teamwork — {k['teamwork']}%")
-                if k['remarks']:
-                    st.info(f"**Remarks:** {k['remarks']}")
-            else:
-                st.info("No KPI records yet.")
-
-    else:
+    with tab1:
         emp_df = get_employees()
-        st.caption(f"{len(emp_df)} employees")
-
-        col_search, col_dept, col_status = st.columns(3)
-        with col_search:
-            search = st.text_input("🔍 Search by name or ID", "")
-        with col_dept:
-            depts = ["All"] + sorted(emp_df['department'].unique().tolist())
-            dept_filter = st.selectbox("Department", depts)
-        with col_status:
-            status_filter = st.selectbox("Status", ["All", "Active", "Inactive"])
+        st.caption(f"{len(emp_df)} employees registered")
+        col1, col2, col3 = st.columns(3)
+        with col1: search = st.text_input("🔍 Search name or ID")
+        with col2: dept_filter = st.selectbox("Filter by Department", ["All"] + get_dept_names())
+        with col3: status_filter = st.selectbox("Filter by Status", ["All", "Active", "Inactive", "On Leave"])
 
         filtered = emp_df.copy()
         if search:
-            filtered = filtered[filtered['name'].str.contains(search, case=False) | filtered['emp_id'].str.contains(search, case=False)]
+            filtered = filtered[filtered["name"].str.contains(search, case=False) | filtered["emp_id"].str.contains(search, case=False)]
         if dept_filter != "All":
-            filtered = filtered[filtered['department'] == dept_filter]
+            filtered = filtered[filtered["department"] == dept_filter]
         if status_filter != "All":
-            filtered = filtered[filtered['status'] == status_filter]
+            filtered = filtered[filtered["status"] == status_filter]
 
-        st.markdown("---")
-        # Add new employee
-        with st.expander("➕ Add New Staff Member"):
-            with st.form("add_staff"):
-                fc1, fc2 = st.columns(2)
-                with fc1:
-                    new_id = st.text_input("Employee ID (e.g. MAMH-075)")
-                    new_name = st.text_input("Full Name")
-                    new_pos = st.text_input("Position")
-                    new_dept = st.selectbox("Department", sorted(emp_df['department'].unique().tolist()))
-                    new_salary = st.number_input("Basic Salary (KES)", min_value=0.0)
-                    new_hire = st.date_input("Hire Date")
-                with fc2:
-                    new_phone = st.text_input("Phone")
-                    new_email = st.text_input("Email")
-                    new_gender = st.selectbox("Gender", ["Female", "Male", "Other"])
-                    new_dob = st.date_input("Date of Birth")
-                    new_type = st.selectbox("Employment Type", ["Full Time", "Part Time", "Contract", "Locum"])
-                    new_nid = st.text_input("National ID")
-                if st.form_submit_button("✅ Add Staff", type="primary"):
-                    try:
-                        conn = get_conn()
-                        conn.execute("INSERT INTO employees (emp_id,name,position,department,salary,hire_date,phone,email,national_id,gender,dob,employment_type,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'Active')",
-                            (new_id.upper(), new_name.title(), new_pos, new_dept, new_salary, str(new_hire), new_phone, new_email, new_nid, new_gender, str(new_dob), new_type))
-                        conn.commit()
-                        conn.close()
-                        st.success(f"✅ {new_name} added successfully!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Error: {e}")
-
-        cols = st.columns(4)
-        for i, (_, row) in enumerate(filtered.iterrows()):
-            with cols[i % 4]:
+        if filtered.empty:
+            st.info("No staff found matching your search.")
+        else:
+            selected_id = st.selectbox("Select staff to view full profile", ["— Select —"] + filtered["emp_id"].tolist())
+            if selected_id != "— Select —":
+                emp = filtered[filtered["emp_id"] == selected_id].iloc[0]
                 st.markdown(f"""
-                <div class="card" style="text-align:center;min-height:200px;">
-                    <div style="font-size:40px;">👤</div>
-                    <h4 style="margin:8px 0;">{row['name']}</h4>
-                    <p style="color:#6b7280;margin:4px 0;">{row['emp_id']}</p>
-                    <p style="font-weight:600;margin:4px 0;">{row['position']}</p>
-                    <p style="color:#6b7280;margin:4px 0;">{row['department']}</p>
-                    <span class="badge-{'active' if row['status']=='Active' else 'inactive'}">{row['status']}</span>
+                <div class="profile-card">
+                    <h2 style="color:white;margin:0;">👤 {emp['name']}</h2>
+                    <p style="margin:4px 0;opacity:0.85;">{emp['position']} | {emp['department']}</p>
+                    <p style="margin:4px 0;opacity:0.75;">ID: {emp['emp_id']}</p>
                 </div>
                 """, unsafe_allow_html=True)
-                if st.button(f"View Profile", key=f"view_{row['emp_id']}"):
-                    st.session_state.selected_staff = row['emp_id']
-                    st.rerun()
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.markdown("**Personal Details**")
+                    st.write(f"📞 Phone: {emp.get('phone','N/A')}")
+                    st.write(f"📧 Email: {emp.get('email','N/A')}")
+                    st.write(f"🪪 National ID: {emp.get('national_id','N/A')}")
+                    st.write(f"⚧ Gender: {emp.get('gender','N/A')}")
+                with c2:
+                    st.markdown("**Employment Details**")
+                    st.write(f"📅 Hire Date: {emp['hire_date']}")
+                    st.write(f"💼 Type: {emp.get('employment_type','Full-Time')}")
+                    st.write(f"💰 Salary: KES {emp['salary']:,.2f}")
+                    status_color = "badge-green" if emp['status'] == 'Active' else "badge-red"
+                    st.markdown(f"Status: <span class='badge {status_color}'>{emp['status']}</span>", unsafe_allow_html=True)
+                with c3:
+                    st.markdown("**Emergency Contact**")
+                    st.write(f"👤 {emp.get('emergency_contact','N/A')}")
+                    st.write(f"📞 {emp.get('emergency_phone','N/A')}")
+
+                att = pd.read_sql(f"SELECT * FROM attendance WHERE emp_id='{selected_id}' ORDER BY att_date DESC LIMIT 10", conn)
+                if not att.empty:
+                    st.markdown("**Recent Attendance**")
+                    st.dataframe(att[["att_date","clock_in","clock_out","status"]], use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+            display_cols = ["emp_id","name","position","department","phone","status","hire_date"]
+            st.dataframe(filtered[display_cols], use_container_width=True, hide_index=True)
+            csv = filtered.to_csv(index=False).encode()
+            st.download_button("📥 Download Staff List (CSV)", csv, "staff_list.csv", "text/csv")
+
+    with tab2:
+        st.subheader("➕ Add New Staff Member")
+        with st.form("add_staff_form"):
+            c1, c2 = st.columns(2)
+            with c1:
+                emp_id = st.text_input("Employee ID *", placeholder="MAMH-001")
+                name = st.text_input("Full Name *")
+                position = st.text_input("Position *")
+                department = st.selectbox("Department *", get_dept_names())
+                salary = st.number_input("Monthly Salary (KES) *", min_value=0.0, step=500.0)
+                hire_date = st.date_input("Hire Date *")
+                gender = st.selectbox("Gender", ["Male","Female","Other"])
+            with c2:
+                phone = st.text_input("Phone Number")
+                email = st.text_input("Email Address")
+                national_id = st.text_input("National ID")
+                employment_type = st.selectbox("Employment Type", ["Full-Time","Part-Time","Contract","Intern"])
+                emergency_contact = st.text_input("Emergency Contact Name")
+                emergency_phone = st.text_input("Emergency Contact Phone")
+                status = st.selectbox("Status", ["Active","Inactive"])
+            if st.form_submit_button("✅ Add Staff Member", type="primary"):
+                if not emp_id or not name or not position:
+                    st.error("Please fill in all required fields (*)")
+                else:
+                    try:
+                        conn.execute("INSERT INTO employees VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            (emp_id.upper().strip(), name.strip(), position.strip(), department,
+                             salary, str(hire_date), phone, email, national_id,
+                             emergency_contact, emergency_phone, gender, employment_type, status))
+                        conn.commit()
+                        st.success(f"✅ {name} added successfully!")
+                        st.rerun()
+                    except sqlite3.IntegrityError:
+                        st.error(f"❌ Employee ID {emp_id} already exists!")
+
+    with tab3:
+        st.subheader("✏️ Edit or Delete Staff")
+        emp_id_sel, emp_row = employee_selector("Select Staff to Edit", key="select_staff_to_edit")
+        if emp_row is not None:
+            with st.form("edit_staff_form"):
+                c1, c2 = st.columns(2)
+                with c1:
+                    new_name = st.text_input("Full Name", emp_row["name"])
+                    new_pos = st.text_input("Position", emp_row["position"])
+                    dept_list = get_dept_names()
+                    dept_idx = dept_list.index(emp_row["department"]) if emp_row["department"] in dept_list else 0
+                    new_dept = st.selectbox("Department", dept_list, index=dept_idx)
+                    new_salary = st.number_input("Salary (KES)", value=float(emp_row["salary"]), step=500.0)
+                    new_phone = st.text_input("Phone", emp_row.get("phone",""))
+                    new_email = st.text_input("Email", emp_row.get("email",""))
+                with c2:
+                    new_national_id = st.text_input("National ID", emp_row.get("national_id",""))
+                    gender_opts = ["Male","Female","Other"]
+                    new_gender = st.selectbox("Gender", gender_opts,
+                        index=gender_opts.index(emp_row.get("gender","Male")) if emp_row.get("gender","Male") in gender_opts else 0)
+                    emp_type_opts = ["Full-Time","Part-Time","Contract","Intern"]
+                    new_emp_type = st.selectbox("Employment Type", emp_type_opts,
+                        index=emp_type_opts.index(emp_row.get("employment_type","Full-Time")) if emp_row.get("employment_type","Full-Time") in emp_type_opts else 0)
+                    new_ec = st.text_input("Emergency Contact", emp_row.get("emergency_contact",""))
+                    new_ep = st.text_input("Emergency Phone", emp_row.get("emergency_phone",""))
+                    status_opts = ["Active","Inactive","On Leave"]
+                    new_status = st.selectbox("Status", status_opts,
+                        index=status_opts.index(emp_row.get("status","Active")) if emp_row.get("status","Active") in status_opts else 0)
+                col_save, col_del = st.columns(2)
+                with col_save:
+                    if st.form_submit_button("💾 Save Changes", type="primary"):
+                        conn.execute("""UPDATE employees SET name=?,position=?,department=?,salary=?,
+                            phone=?,email=?,national_id=?,gender=?,employment_type=?,
+                            emergency_contact=?,emergency_phone=?,status=? WHERE emp_id=?""",
+                            (new_name,new_pos,new_dept,new_salary,new_phone,new_email,
+                             new_national_id,new_gender,new_emp_type,new_ec,new_ep,new_status,emp_id_sel))
+                        conn.commit()
+                        st.success("✅ Staff details updated!")
+                        st.rerun()
+                with col_del:
+                    if st.form_submit_button("🗑️ Delete Staff"):
+                        conn.execute("DELETE FROM employees WHERE emp_id=?", (emp_id_sel,))
+                        conn.commit()
+                        st.success("✅ Staff member deleted.")
+                        st.rerun()
 
 # ====================== DEPARTMENTS ======================
 elif menu == "🏢 Departments":
     st.title("🏢 Departments")
-    dept_df = get_departments()
-    emp_df = get_employees()
+    tab1, tab2, tab3 = st.tabs(["📋 View Departments", "➕ Add Department", "✏️ Edit Department"])
 
-    if st.session_state.selected_dept:
-        dept_name = st.session_state.selected_dept
-        dept = dept_df[dept_df['dept_name'] == dept_name].iloc[0]
-        dept_staff = emp_df[emp_df['department'] == dept_name]
+    with tab1:
+        dept_df = get_departments()
+        emp_df = get_employees()
+        st.caption(f"{len(dept_df)} departments registered")
+        for _, dept in dept_df.iterrows():
+            staff_in_dept = emp_df[emp_df["department"] == dept["dept_name"]] if not emp_df.empty else pd.DataFrame()
+            count = len(staff_in_dept)
+            with st.expander(f"🏢 {dept['dept_name']} — {dept['description']} ({count} staff)"):
+                c1, c2, c3 = st.columns(3)
+                with c1: st.write(f"**Description:** {dept['description']}")
+                with c2: st.write(f"**Head:** {dept['head'] or 'Not assigned'}")
+                with c3:
+                    status_class = "badge-green" if dept["status"] == "Active" else "badge-red"
+                    st.markdown(f"**Status:** <span class='badge {status_class}'>{dept['status']}</span>", unsafe_allow_html=True)
+                if not staff_in_dept.empty:
+                    st.markdown(f"**Staff in {dept['dept_name']}:**")
+                    show_cols = ["emp_id","name","position","phone","status"]
+                    st.dataframe(staff_in_dept[show_cols], use_container_width=True, hide_index=True)
+                else:
+                    st.info("No staff assigned to this department yet.")
 
-        if st.button("← Back to Departments"):
-            st.session_state.selected_dept = None
-            st.rerun()
-
-        st.markdown(f"""
-        <div class="profile-card">
-            <h2>🏢 {dept['dept_name']}</h2>
-            <p style="color:#6b7280;">{dept['description']}</p>
-            <p><strong>Head:</strong> {dept['head']}</p>
-            <span class="badge-active">{dept['status']}</span>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.metric("Total Staff", len(dept_staff))
-        st.subheader(f"Staff in {dept_name}")
-
-        if len(dept_staff) > 0:
-            cols = st.columns(4)
-            for i, (_, row) in enumerate(dept_staff.iterrows()):
-                with cols[i % 4]:
-                    st.markdown(f"""
-                    <div class="card" style="text-align:center;">
-                        <div style="font-size:32px;">👤</div>
-                        <h4>{row['name']}</h4>
-                        <p>{row['emp_id']}</p>
-                        <p><strong>{row['position']}</strong></p>
-                        <span class="badge-{'active' if row['status']=='Active' else 'inactive'}">{row['status']}</span>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    if st.button("View Profile", key=f"dept_view_{row['emp_id']}"):
-                        st.session_state.selected_staff = row['emp_id']
-                        st.session_state.selected_dept = None
-                        st.rerun()
-        else:
-            st.info("No staff assigned to this department yet.")
-
-        st.markdown("---")
-        st.subheader("✏️ Edit Department")
-        with st.form("edit_dept"):
-            new_desc = st.text_input("Description", dept['description'])
-            new_head = st.text_input("Department Head", dept['head'])
-            new_status = st.selectbox("Status", ["Active", "Inactive"], index=0 if dept['status']=="Active" else 1)
-            if st.form_submit_button("💾 Save Changes", type="primary"):
-                conn = get_conn()
-                conn.execute("UPDATE departments SET description=?,head=?,status=? WHERE dept_name=?", (new_desc, new_head, new_status, dept_name))
-                conn.commit()
-                conn.close()
-                st.success("✅ Department updated!")
-                st.rerun()
-
-    else:
-        st.caption(f"{len(dept_df)} active departments")
-
-        with st.expander("➕ Add New Department"):
-            with st.form("add_dept"):
-                d1, d2 = st.columns(2)
-                with d1:
-                    new_dept_name = st.text_input("Department Name")
-                    new_dept_desc = st.text_input("Description")
-                with d2:
-                    new_dept_head = st.text_input("Department Head")
-                if st.form_submit_button("✅ Add Department", type="primary"):
+    with tab2:
+        st.subheader("➕ Add New Department")
+        with st.form("add_dept_form"):
+            dept_name = st.text_input("Department Name *")
+            description = st.text_input("Description")
+            head = st.text_input("Department Head")
+            status = st.selectbox("Status", ["Active","Inactive"])
+            if st.form_submit_button("✅ Add Department", type="primary"):
+                if not dept_name:
+                    st.error("Department name is required!")
+                else:
                     try:
-                        conn = get_conn()
-                        conn.execute("INSERT INTO departments VALUES (?,?,?,'Active')", (new_dept_name.title(), new_dept_desc, new_dept_head))
+                        conn.execute("INSERT INTO departments (dept_name,description,head,status) VALUES (?,?,?,?)",
+                            (dept_name.strip(), description, head, status))
                         conn.commit()
-                        conn.close()
-                        st.success(f"✅ {new_dept_name} added!")
+                        st.success(f"✅ {dept_name} added!")
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ {e}")
+                    except sqlite3.IntegrityError:
+                        st.error("Department already exists!")
 
-        cols = st.columns(3)
-        for i, (_, dept) in enumerate(dept_df.iterrows()):
-            staff_count = len(emp_df[emp_df['department'] == dept['dept_name']])
-            with cols[i % 3]:
-                st.markdown(f"""
-                <div class="dept-card">
-                    <h3 style="color:white;margin:0;">{dept['dept_name']}</h3>
-                    <p style="color:#bfdbfe;margin:4px 0;">{dept['description']}</p>
-                    <p style="color:white;margin:4px 0;"><strong>Head:</strong> {dept['head']}</p>
-                    <p style="color:#bfdbfe;margin:4px 0;">👥 {staff_count} staff</p>
-                </div>
-                """, unsafe_allow_html=True)
-                if st.button(f"View Department", key=f"dept_{dept['dept_name']}"):
-                    st.session_state.selected_dept = dept['dept_name']
-                    st.rerun()
+    with tab3:
+        st.subheader("✏️ Edit Department")
+        dept_df = get_departments()
+        if not dept_df.empty:
+            dept_sel = st.selectbox("Select Department", dept_df["dept_name"].tolist())
+            dept_row = dept_df[dept_df["dept_name"] == dept_sel].iloc[0]
+            with st.form("edit_dept_form"):
+                new_desc = st.text_input("Description", dept_row["description"])
+                new_head = st.text_input("Department Head", dept_row["head"])
+                new_status = st.selectbox("Status", ["Active","Inactive"], index=0 if dept_row["status"] == "Active" else 1)
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.form_submit_button("💾 Save Changes", type="primary"):
+                        conn.execute("UPDATE departments SET description=?,head=?,status=? WHERE dept_name=?",
+                            (new_desc, new_head, new_status, dept_sel))
+                        conn.commit()
+                        st.success("✅ Department updated!")
+                        st.rerun()
+                with col2:
+                    if st.form_submit_button("🗑️ Delete Department"):
+                        emp_df2 = get_employees()
+                        if not emp_df2.empty and dept_sel in emp_df2["department"].values:
+                            st.error("❌ Cannot delete — staff are assigned to this department!")
+                        else:
+                            conn.execute("DELETE FROM departments WHERE dept_name=?", (dept_sel,))
+                            conn.commit()
+                            st.success("✅ Department deleted!")
+                            st.rerun()
 
 # ====================== PAYROLL ======================
 elif menu == "💰 Payroll":
     st.title("💰 Payroll Management")
-
-    months = ["2026-04", "2026-03", "2026-02", "2026-01"]
-    selected_month = st.selectbox("Select Month", months)
-    pay_df = get_payroll(selected_month)
-
-    if len(pay_df) > 0:
-        c1, c2, c3, c4 = st.columns(4)
-        with c1: st.metric("Total Gross", f"KSH {pay_df['gross'].sum():,.0f}")
-        with c2: st.metric("Total Deductions", f"KSH {pay_df['total_deductions'].sum():,.0f}")
-        with c3: st.metric("Net Payroll", f"KSH {pay_df['net'].sum():,.0f}")
-        with c4: st.metric("Payslips", len(pay_df))
-
-    tab1, tab2, tab3 = st.tabs(["📋 Payroll Records", "➕ Add/Edit Payroll", "📥 Generate Payslips"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📋 Payroll Records", "➕ Add/Edit Payroll", "📄 Generate Payslip", "📊 Summary"])
 
     with tab1:
-        if len(pay_df) > 0:
-            display_cols = ['name','department','basic_salary','house_allowance','transport','paye','nssf','nhif','gross','total_deductions','net','status']
-            available = [c for c in display_cols if c in pay_df.columns]
-            st.dataframe(pay_df[available], use_container_width=True, hide_index=True)
-
-            # Export payroll to Excel
-            output = io.BytesIO()
-            pay_df.to_excel(output, index=False)
-            st.download_button("📥 Export Payroll to Excel", output.getvalue(), file_name=f"Payroll_{selected_month}.xlsx", mime="application/vnd.ms-excel")
+        pay_df = pd.read_sql("SELECT p.*, e.name, e.department FROM payroll p JOIN employees e ON p.emp_id=e.emp_id ORDER BY p.month DESC", conn)
+        if pay_df.empty:
+            st.info("No payroll records yet. Use 'Add/Edit Payroll' tab to add records.")
         else:
-            st.info("No payroll records for this month.")
+            month_list = pay_df["month"].unique().tolist()
+            sel_month = st.selectbox("Select Month", month_list)
+            filtered_pay = pay_df[pay_df["month"] == sel_month]
+            c1, c2, c3, c4 = st.columns(4)
+            with c1: st.metric("Total Gross", f"KES {filtered_pay['gross'].sum():,.0f}")
+            with c2: st.metric("Total Deductions", f"KES {filtered_pay['total_deductions'].sum():,.0f}")
+            with c3: st.metric("Net Payroll", f"KES {filtered_pay['net'].sum():,.0f}")
+            with c4: st.metric("Payslips", len(filtered_pay))
+            show = filtered_pay[["emp_id","name","department","gross","total_deductions","net","status"]]
+            st.dataframe(show, use_container_width=True, hide_index=True)
+            csv = show.to_csv(index=False).encode()
+            st.download_button("📥 Download Payroll CSV", csv, f"payroll_{sel_month}.csv", "text/csv")
 
     with tab2:
-        emp_df = get_employees()
-        st.subheader("Add / Edit Employee Payroll")
-        emp_options = {f"{r['emp_id']} - {r['name']}": r['emp_id'] for _, r in emp_df.iterrows()}
-        selected_emp_label = st.selectbox("Select Employee", list(emp_options.keys()))
-        selected_emp_id = emp_options[selected_emp_label]
-
-        # Load existing payroll if any
-        conn = get_conn()
-        existing = pd.read_sql(f"SELECT * FROM payroll WHERE emp_id='{selected_emp_id}' AND month='{selected_month}'", conn)
-        conn.close()
-        ex = existing.iloc[0] if len(existing) > 0 else None
-
-        with st.form("payroll_form"):
-            st.markdown("#### Earnings")
-            p1, p2, p3 = st.columns(3)
-            with p1:
-                basic = st.number_input("Basic Salary", value=float(ex['basic_salary']) if ex is not None else 0.0)
-                house = st.number_input("House Allowance", value=float(ex['house_allowance']) if ex is not None else 0.0)
-            with p2:
-                transport = st.number_input("Transport", value=float(ex['transport']) if ex is not None else 0.0)
-                medical = st.number_input("Medical Allowance", value=float(ex['medical']) if ex is not None else 0.0)
-            with p3:
-                other_allow = st.number_input("Other Allowances", value=float(ex['other_allowances']) if ex is not None else 0.0)
-
-            st.markdown("#### Deductions")
-            d1, d2, d3 = st.columns(3)
-            with d1:
-                paye = st.number_input("PAYE (Tax)", value=float(ex['paye']) if ex is not None else 0.0)
-                nssf = st.number_input("NSSF", value=float(ex['nssf']) if ex is not None else 720.0)
-            with d2:
-                nhif = st.number_input("NHIF", value=float(ex['nhif']) if ex is not None else 1700.0)
-                loan = st.number_input("Loan Deduction", value=float(ex['loan_deduction']) if ex is not None else 0.0)
-            with d3:
-                other_deduct = st.number_input("Other Deductions", value=float(ex['other_deductions']) if ex is not None else 0.0)
-                pay_status = st.selectbox("Status", ["Pending", "Paid", "On Hold"], index=["Pending","Paid","On Hold"].index(ex['status']) if ex is not None and ex['status'] in ["Pending","Paid","On Hold"] else 0)
-
+        st.subheader("➕ Add / Edit Employee Payroll")
+        emp_id_sel, emp_row = employee_selector("Select Employee")
+        if emp_row is not None:
+            sel_month = st.text_input("Month", datetime.now().strftime("%B %Y"))
+            existing = pd.read_sql(f"SELECT * FROM payroll WHERE emp_id='{emp_id_sel}' AND month='{sel_month}'", conn)
+            ex = existing.iloc[0] if not existing.empty else None
+            st.markdown("**Earnings**")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                basic = st.number_input("Basic Salary", value=float(ex["basic_salary"]) if ex is not None else float(emp_row["salary"]), step=500.0)
+                house = st.number_input("House Allowance", value=float(ex["house_allowance"]) if ex is not None else 0.0, step=100.0)
+            with c2:
+                transport = st.number_input("Transport Allowance", value=float(ex["transport_allowance"]) if ex is not None else 0.0, step=100.0)
+                medical = st.number_input("Medical Allowance", value=float(ex["medical_allowance"]) if ex is not None else 0.0, step=100.0)
+            with c3:
+                other_allow = st.number_input("Other Allowance", value=float(ex["other_allowance"]) if ex is not None else 0.0, step=100.0)
+            st.markdown("**Deductions**")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                nssf = st.number_input("NSSF", value=float(ex["nssf"]) if ex is not None else 200.0, step=50.0)
+                nhif = st.number_input("NHIF", value=float(ex["nhif"]) if ex is not None else 500.0, step=50.0)
+            with c2:
+                paye = st.number_input("PAYE (Tax)", value=float(ex["paye"]) if ex is not None else 0.0, step=100.0)
+                loan = st.number_input("Loan Deduction", value=float(ex["loan_deduction"]) if ex is not None else 0.0, step=100.0)
+            with c3:
+                other_ded = st.number_input("Other Deduction", value=float(ex["other_deduction"]) if ex is not None else 0.0, step=100.0)
+                pay_status = st.selectbox("Status", ["Pending","Paid","On Hold"])
             gross = basic + house + transport + medical + other_allow
-            total_deduct = paye + nssf + nhif + loan + other_deduct
-            net = gross - total_deduct
-            st.info(f"**Gross:** KSH {gross:,.0f} | **Deductions:** KSH {total_deduct:,.0f} | **Net:** KSH {net:,.0f}")
-
-            if st.form_submit_button("💾 Save Payroll", type="primary"):
-                conn = get_conn()
+            total_ded = nssf + nhif + paye + loan + other_ded
+            net = gross - total_ded
+            st.markdown(f"**Gross:** KES {gross:,.2f} | **Deductions:** KES {total_ded:,.2f} | **Net:** KES {net:,.2f}")
+            if st.button("💾 Save Payroll", type="primary"):
                 if ex is not None:
-                    conn.execute("UPDATE payroll SET basic_salary=?,house_allowance=?,transport=?,medical=?,other_allowances=?,paye=?,nssf=?,nhif=?,loan_deduction=?,other_deductions=?,gross=?,total_deductions=?,net=?,status=? WHERE emp_id=? AND month=?",
-                        (basic, house, transport, medical, other_allow, paye, nssf, nhif, loan, other_deduct, gross, total_deduct, net, pay_status, selected_emp_id, selected_month))
+                    conn.execute("""UPDATE payroll SET basic_salary=?,house_allowance=?,transport_allowance=?,
+                        medical_allowance=?,other_allowance=?,nssf=?,nhif=?,paye=?,loan_deduction=?,
+                        other_deduction=?,gross=?,total_deductions=?,net=?,status=? WHERE emp_id=? AND month=?""",
+                        (basic,house,transport,medical,other_allow,nssf,nhif,paye,loan,other_ded,gross,total_ded,net,pay_status,emp_id_sel,sel_month))
                 else:
-                    conn.execute("INSERT INTO payroll (emp_id,month,basic_salary,house_allowance,transport,medical,other_allowances,paye,nssf,nhif,loan_deduction,other_deductions,gross,total_deductions,net,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                        (selected_emp_id, selected_month, basic, house, transport, medical, other_allow, paye, nssf, nhif, loan, other_deduct, gross, total_deduct, net, pay_status))
+                    conn.execute("""INSERT INTO payroll (emp_id,month,basic_salary,house_allowance,transport_allowance,
+                        medical_allowance,other_allowance,nssf,nhif,paye,loan_deduction,other_deduction,gross,total_deductions,net,status)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (emp_id_sel,sel_month,basic,house,transport,medical,other_allow,nssf,nhif,paye,loan,other_ded,gross,total_ded,net,pay_status))
                 conn.commit()
-                conn.close()
                 st.success("✅ Payroll saved!")
                 st.rerun()
 
     with tab3:
-        st.subheader("Generate Payslips")
-        if len(pay_df) > 0:
-            emp_options2 = {f"{r['emp_id']} - {r['name']}": r['emp_id'] for _, r in pay_df.iterrows()}
-            selected_for_slip = st.selectbox("Select Employee for Payslip", list(emp_options2.keys()))
-            slip_emp_id = emp_options2[selected_for_slip]
-            slip_row = pay_df[pay_df['emp_id'] == slip_emp_id].iloc[0]
-            conn = get_conn()
-            emp_row = pd.read_sql(f"SELECT * FROM employees WHERE emp_id='{slip_emp_id}'", conn).iloc[0]
-            conn.close()
-            payslip = generate_payslip_text(emp_row, slip_row)
-            st.text(payslip)
-            st.download_button("📥 Download Payslip", payslip, file_name=f"Payslip_{slip_emp_id}_{selected_month}.txt", mime="text/plain")
+        st.subheader("📄 Generate Payslip")
+        emp_id_sel, emp_row = employee_selector("Select Employee", key="payslip_select_employee")
+        if emp_row is not None:
+            pay_df2 = pd.read_sql(f"SELECT * FROM payroll WHERE emp_id='{emp_id_sel}' ORDER BY id DESC", conn)
+            if pay_df2.empty:
+                st.warning("No payroll records for this employee. Please add payroll first.")
+            else:
+                sel_pay_month = st.selectbox("Select Month", pay_df2["month"].tolist())
+                pay_row = pay_df2[pay_df2["month"] == sel_pay_month].iloc[0]
+                payslip = generate_payslip_text(emp_row, pay_row)
+                st.text(payslip)
+                st.download_button("📥 Download Payslip", payslip,
+                    f"payslip_{emp_row['emp_id']}_{sel_pay_month.replace(' ','_')}.txt", "text/plain")
 
-            # Bulk all payslips
-            all_slips = ""
-            for _, prow in pay_df.iterrows():
-                try:
-                    conn2 = get_conn()
-                    erow = pd.read_sql(f"SELECT * FROM employees WHERE emp_id='{prow['emp_id']}'", conn2).iloc[0]
-                    conn2.close()
-                    all_slips += generate_payslip_text(erow, prow) + "\n\n"
-                except:
-                    pass
-            st.download_button("📥 Download All Payslips", all_slips, file_name=f"All_Payslips_{selected_month}.txt", mime="text/plain")
+    with tab4:
+        st.subheader("📊 Payroll Summary by Department")
+        pay_all = pd.read_sql("SELECT p.*, e.department FROM payroll p JOIN employees e ON p.emp_id=e.emp_id", conn)
+        if not pay_all.empty:
+            summary = pay_all.groupby("department").agg(
+                Staff=("emp_id","count"), Gross=("gross","sum"),
+                Deductions=("total_deductions","sum"), Net=("net","sum")).reset_index()
+            st.dataframe(summary, use_container_width=True, hide_index=True)
         else:
-            st.info("No payroll records to generate payslips.")
-
-# ====================== ATTENDANCE ======================
-elif menu == "⏰ Attendance":
-    st.title("⏰ Attendance Tracking")
-    st.caption(f"{datetime.now().strftime('%B %Y')}")
-
-    tab1, tab2 = st.tabs(["📋 Records", "➕ Mark Attendance"])
-
-    with tab1:
-        conn = get_conn()
-        att_df = pd.read_sql("SELECT a.*, e.name, e.department FROM attendance a JOIN employees e ON a.emp_id=e.emp_id ORDER BY a.attendance_date DESC", conn)
-        conn.close()
-
-        c1, c2, c3, c4 = st.columns(4)
-        with c1: st.metric("Present", len(att_df[att_df['status']=='Present']))
-        with c2: st.metric("Absent", len(att_df[att_df['status']=='Absent']))
-        with c3: st.metric("Late", len(att_df[att_df['status']=='Late']))
-        with c4: st.metric("On Leave", len(att_df[att_df['status']=='On Leave']))
-
-        if len(att_df) > 0:
-            st.dataframe(att_df[['name','department','attendance_date','clock_in','clock_out','status','notes']], use_container_width=True, hide_index=True)
-            output = io.BytesIO()
-            att_df.to_excel(output, index=False)
-            st.download_button("📥 Export Attendance", output.getvalue(), file_name="Attendance_Report.xlsx", mime="application/vnd.ms-excel")
-        else:
-            st.info("No attendance records yet.")
-
-    with tab2:
-        emp_df = get_employees()
-        with st.form("mark_att"):
-            emp_options = {f"{r['emp_id']} - {r['name']}": r['emp_id'] for _, r in emp_df.iterrows()}
-            sel_emp = st.selectbox("Employee", list(emp_options.keys()))
-            att_date = st.date_input("Date", date.today())
-            att_status = st.selectbox("Status", ["Present", "Absent", "Late", "On Leave", "Half Day"])
-            clock_in = st.text_input("Clock In (e.g. 08:00 AM)")
-            clock_out = st.text_input("Clock Out (e.g. 05:00 PM)")
-            notes = st.text_area("Notes")
-            if st.form_submit_button("✅ Mark Attendance", type="primary"):
-                conn = get_conn()
-                conn.execute("INSERT INTO attendance (emp_id,attendance_date,clock_in,clock_out,status,notes) VALUES (?,?,?,?,?,?)",
-                    (emp_options[sel_emp], str(att_date), clock_in, clock_out, att_status, notes))
-                conn.commit()
-                conn.close()
-                st.success("✅ Attendance marked!")
-                st.rerun()
+            st.info("No payroll data available yet.")
 
 # ====================== LEAVE MANAGEMENT ======================
 elif menu == "🌴 Leave Management":
     st.title("🌴 Leave Management")
-    emp_df = get_employees()
-
-    tab1, tab2, tab3 = st.tabs(["📋 All Leaves", "➕ New Leave Request", "📄 Generate Leave Letter"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📋 All Leaves", "➕ Request Leave", "✅ Approve/Reject", "📄 Leave Letter"])
 
     with tab1:
-        leaves_df = get_leaves()
-        if len(leaves_df) > 0:
-            status_options = ["All", "Pending", "Approved", "Rejected"]
-            status_f = st.selectbox("Filter by Status", status_options)
-            if status_f != "All":
-                leaves_df = leaves_df[leaves_df['status'] == status_f]
-
-            c1, c2, c3, c4 = st.columns(4)
-            with c1: st.metric("Total Leaves", len(leaves_df))
-            with c2: st.metric("Pending", len(leaves_df[leaves_df['status']=='Pending']))
-            with c3: st.metric("Approved", len(leaves_df[leaves_df['status']=='Approved']))
-            with c4: st.metric("Rejected", len(leaves_df[leaves_df['status']=='Rejected']))
-
-            for _, leave in leaves_df.iterrows():
-                with st.expander(f"🌴 {leave['name']} — {leave['leave_type']} ({leave['start_date']} to {leave['end_date']})"):
-                    l1, l2, l3 = st.columns(3)
-                    with l1:
-                        st.write(f"**Employee:** {leave['name']}")
-                        st.write(f"**Department:** {leave['department']}")
-                        st.write(f"**Leave Type:** {leave['leave_type']}")
-                    with l2:
-                        st.write(f"**Start:** {leave['start_date']}")
-                        st.write(f"**End:** {leave['end_date']}")
-                        st.write(f"**Days:** {leave['days']}")
-                    with l3:
-                        st.write(f"**Status:** {leave['status']}")
-                        st.write(f"**Reason:** {leave['reason']}")
-
-                    if leave['status'] == 'Pending':
-                        a1, a2 = st.columns(2)
-                        with a1:
-                            if st.button("✅ Approve", key=f"approve_{leave['id']}"):
-                                conn = get_conn()
-                                conn.execute("UPDATE leaves SET status='Approved', approved_by='HR Manager' WHERE id=?", (leave['id'],))
-                                conn.commit()
-                                conn.close()
-                                st.success("Approved!")
-                                st.rerun()
-                        with a2:
-                            if st.button("❌ Reject", key=f"reject_{leave['id']}"):
-                                conn = get_conn()
-                                conn.execute("UPDATE leaves SET status='Rejected' WHERE id=?", (leave['id'],))
-                                conn.commit()
-                                conn.close()
-                                st.warning("Rejected!")
-                                st.rerun()
+        leave_df = pd.read_sql("SELECT l.*, e.name, e.department FROM leaves l JOIN employees e ON l.emp_id=e.emp_id ORDER BY l.id DESC", conn)
+        if leave_df.empty:
+            st.info("No leave records yet.")
         else:
-            st.info("No leave requests yet.")
+            col1, col2 = st.columns(2)
+            with col1: status_filter = st.selectbox("Filter by Status", ["All","Pending","Approved","Rejected"])
+            with col2: type_filter = st.selectbox("Filter by Type", ["All","Annual","Sick","Emergency","Maternity","Paternity","Study"])
+            filtered_leave = leave_df.copy()
+            if status_filter != "All": filtered_leave = filtered_leave[filtered_leave["status"] == status_filter]
+            if type_filter != "All": filtered_leave = filtered_leave[filtered_leave["leave_type"] == type_filter]
+            c1, c2, c3, c4 = st.columns(4)
+            with c1: st.metric("Total", len(leave_df))
+            with c2: st.metric("Pending", len(leave_df[leave_df["status"] == "Pending"]))
+            with c3: st.metric("Approved", len(leave_df[leave_df["status"] == "Approved"]))
+            with c4: st.metric("Rejected", len(leave_df[leave_df["status"] == "Rejected"]))
+            show = filtered_leave[["name","department","leave_type","start_date","end_date","days","reason","status"]]
+            st.dataframe(show, use_container_width=True, hide_index=True)
+            csv = show.to_csv(index=False).encode()
+            st.download_button("📥 Download Leave Records", csv, "leave_records.csv", "text/csv")
 
     with tab2:
+        st.subheader("➕ New Leave Request")
         with st.form("leave_form"):
-            emp_opts = {f"{r['emp_id']} - {r['name']}": r['emp_id'] for _, r in emp_df.iterrows()}
-            sel_emp = st.selectbox("Employee", list(emp_opts.keys()))
-            leave_type = st.selectbox("Leave Type", ["Annual", "Sick", "Emergency", "Maternity", "Paternity", "Compassionate", "Study", "Unpaid"])
-            lc1, lc2 = st.columns(2)
-            with lc1:
-                start = st.date_input("Start Date")
-            with lc2:
-                end = st.date_input("End Date")
+            emp_df2 = get_employees()
+            if not emp_df2.empty:
+                emp_options = [f"{r['emp_id']} — {r['name']}" for _, r in emp_df2.iterrows()]
+                emp_sel = st.selectbox("Employee", emp_options)
+                emp_id_leave = emp_sel.split(" — ")[0]
+            leave_type = st.selectbox("Leave Type", ["Annual","Sick","Emergency","Maternity","Paternity","Study","Compassionate"])
+            c1, c2 = st.columns(2)
+            with c1: start_date = st.date_input("Start Date")
+            with c2: end_date = st.date_input("End Date")
             reason = st.text_area("Reason for Leave")
-            if st.form_submit_button("📤 Submit Leave Request", type="primary"):
-                days = (end - start).days + 1
-                conn = get_conn()
-                conn.execute("INSERT INTO leaves (emp_id,leave_type,start_date,end_date,days,reason,status,applied_on) VALUES (?,?,?,?,?,?,'Pending',?)",
-                    (emp_opts[sel_emp], leave_type, str(start), str(end), days, reason, str(date.today())))
+            days = (end_date - start_date).days + 1
+            st.info(f"Total days: {days}")
+            if st.form_submit_button("✅ Submit Leave Request", type="primary"):
+                if days < 1:
+                    st.error("End date must be after start date!")
+                else:
+                    conn.execute("INSERT INTO leaves (emp_id,leave_type,start_date,end_date,days,reason,applied_date) VALUES (?,?,?,?,?,?,?)",
+                        (emp_id_leave, leave_type, str(start_date), str(end_date), days, reason, str(date.today())))
+                    conn.commit()
+                    st.success("✅ Leave request submitted!")
+                    st.rerun()
+
+    with tab3:
+        st.subheader("✅ Approve or Reject Leave Requests")
+        pending = pd.read_sql("SELECT l.*, e.name FROM leaves l JOIN employees e ON l.emp_id=e.emp_id WHERE l.status='Pending'", conn)
+        if pending.empty:
+            st.success("✅ No pending leave requests!")
+        else:
+            for _, row in pending.iterrows():
+                with st.expander(f"🌴 {row['name']} — {row['leave_type']} ({row['start_date']} to {row['end_date']}, {row['days']} days)"):
+                    st.write(f"**Reason:** {row['reason']}")
+                    st.write(f"**Applied:** {row['applied_date']}")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("✅ Approve", key=f"app_{row['id']}"):
+                            conn.execute("UPDATE leaves SET status='Approved', approved_by=? WHERE id=?",
+                                (st.session_state.current_user, row["id"]))
+                            conn.commit()
+                            st.success("✅ Approved!")
+                            st.rerun()
+                    with c2:
+                        if st.button("❌ Reject", key=f"rej_{row['id']}"):
+                            conn.execute("UPDATE leaves SET status='Rejected', approved_by=? WHERE id=?",
+                                (st.session_state.current_user, row["id"]))
+                            conn.commit()
+                            st.warning("❌ Rejected.")
+                            st.rerun()
+
+    with tab4:
+        st.subheader("📄 Generate Leave Letter")
+        emp_id_sel, emp_row = employee_selector("Select Employee", key="leave_letter_select_employee")
+        if emp_row is not None:
+            leave_records = pd.read_sql(f"SELECT * FROM leaves WHERE emp_id='{emp_id_sel}' AND status='Approved' ORDER BY id DESC", conn)
+            if leave_records.empty:
+                st.warning("No approved leaves found for this employee.")
+            else:
+                leave_options = [f"{r['leave_type']} ({r['start_date']} to {r['end_date']})" for _, r in leave_records.iterrows()]
+                sel_leave_idx = st.selectbox("Select Leave", range(len(leave_options)), format_func=lambda x: leave_options[x])
+                leave_row = leave_records.iloc[sel_leave_idx]
+                letter = generate_leave_letter(emp_row, leave_row)
+                st.text(letter)
+                st.download_button("📥 Download Leave Letter", letter,
+                    f"leave_letter_{emp_row['emp_id']}_{leave_row['start_date']}.txt", "text/plain")
+
+# ====================== ATTENDANCE ======================
+elif menu == "⏰ Attendance":
+    st.title("⏰ Attendance Tracking")
+    tab1, tab2, tab3 = st.tabs(["📋 View Attendance", "➕ Mark Attendance", "📊 Summary"])
+
+    with tab1:
+        att_df = pd.read_sql("SELECT a.*, e.name, e.department FROM attendance a JOIN employees e ON a.emp_id=e.emp_id ORDER BY a.att_date DESC", conn)
+        if att_df.empty:
+            st.info("No attendance records yet.")
+        else:
+            c1, c2, c3 = st.columns(3)
+            with c1: date_filter = st.date_input("Filter by Date", date.today())
+            with c2: dept_filter = st.selectbox("Filter by Department", ["All"] + get_dept_names())
+            with c3: status_filter = st.selectbox("Filter by Status", ["All","Present","Absent","Late","On Leave"])
+            filtered_att = att_df[att_df["att_date"] == str(date_filter)]
+            if dept_filter != "All": filtered_att = filtered_att[filtered_att["department"] == dept_filter]
+            if status_filter != "All": filtered_att = filtered_att[filtered_att["status"] == status_filter]
+            c1, c2, c3, c4 = st.columns(4)
+            with c1: st.metric("Present", len(att_df[att_df["status"] == "Present"]))
+            with c2: st.metric("Absent", len(att_df[att_df["status"] == "Absent"]))
+            with c3: st.metric("Late", len(att_df[att_df["status"] == "Late"]))
+            with c4: st.metric("On Leave", len(att_df[att_df["status"] == "On Leave"]))
+            show = filtered_att[["name","department","att_date","clock_in","clock_out","status","notes"]]
+            st.dataframe(show, use_container_width=True, hide_index=True)
+            csv = show.to_csv(index=False).encode()
+            st.download_button("📥 Download", csv, "attendance.csv", "text/csv")
+
+    with tab2:
+        st.subheader("➕ Mark Attendance")
+        with st.form("att_form"):
+            emp_df2 = get_employees()
+            if not emp_df2.empty:
+                emp_options = [f"{r['emp_id']} — {r['name']}" for _, r in emp_df2.iterrows()]
+                emp_sel = st.selectbox("Employee", emp_options)
+                emp_id_att = emp_sel.split(" — ")[0]
+            att_date_val = st.date_input("Date", date.today())
+            c1, c2 = st.columns(2)
+            with c1:
+                clock_in = st.text_input("Clock In Time", "08:00 AM")
+                att_status = st.selectbox("Status", ["Present","Absent","Late","On Leave"])
+            with c2:
+                clock_out = st.text_input("Clock Out Time", "05:00 PM")
+                notes = st.text_input("Notes (optional)")
+            if st.form_submit_button("✅ Mark Attendance", type="primary"):
+                existing_att = pd.read_sql(f"SELECT id FROM attendance WHERE emp_id='{emp_id_att}' AND att_date='{att_date_val}'", conn)
+                if not existing_att.empty:
+                    conn.execute("UPDATE attendance SET clock_in=?,clock_out=?,status=?,notes=? WHERE emp_id=? AND att_date=?",
+                        (clock_in, clock_out, att_status, notes, emp_id_att, str(att_date_val)))
+                    st.success("✅ Attendance updated!")
+                else:
+                    conn.execute("INSERT INTO attendance (emp_id,att_date,clock_in,clock_out,status,notes) VALUES (?,?,?,?,?,?)",
+                        (emp_id_att, str(att_date_val), clock_in, clock_out, att_status, notes))
+                    st.success("✅ Attendance marked!")
                 conn.commit()
-                conn.close()
-                st.success("✅ Leave request submitted!")
                 st.rerun()
 
     with tab3:
-        leaves_df2 = get_leaves()
-        approved = leaves_df2[leaves_df2['status'] == 'Approved'] if len(leaves_df2) > 0 else pd.DataFrame()
-        if len(approved) > 0:
-            leave_opts = {f"{r['name']} — {r['leave_type']} ({r['start_date']})": r['id'] for _, r in approved.iterrows()}
-            selected_leave = st.selectbox("Select Leave", list(leave_opts.keys()))
-            leave_id = leave_opts[selected_leave]
-            leave_row = approved[approved['id'] == leave_id].iloc[0]
-            conn = get_conn()
-            emp_row = pd.read_sql(f"SELECT * FROM employees WHERE emp_id='{leave_row['emp_id']}'", conn).iloc[0]
-            conn.close()
-            letter = generate_leave_letter(emp_row, leave_row)
-            st.text(letter)
-            st.download_button("📥 Download Leave Letter", letter, file_name=f"Leave_Letter_{emp_row['emp_id']}.txt", mime="text/plain")
+        st.subheader("📊 Attendance Summary by Employee")
+        att_all = pd.read_sql("SELECT a.emp_id, e.name, e.department, a.status, COUNT(*) as count FROM attendance a JOIN employees e ON a.emp_id=e.emp_id GROUP BY a.emp_id, a.status", conn)
+        if not att_all.empty:
+            pivot = att_all.pivot_table(index=["emp_id","name","department"], columns="status", values="count", fill_value=0).reset_index()
+            st.dataframe(pivot, use_container_width=True, hide_index=True)
         else:
-            st.info("No approved leaves to generate letters for. Approve a leave request first.")
+            st.info("No attendance data yet.")
 
 # ====================== KPI DASHBOARD ======================
 elif menu == "📈 KPI Dashboard":
     st.title("📈 KPI Dashboard")
-
-    months = ["2026-04", "2026-03", "2026-02"]
-    kpi_month = st.selectbox("Month", months)
-    kpi_df = get_kpi(kpi_month)
-    emp_df = get_employees()
-
-    if len(kpi_df) > 0:
-        c1, c2, c3, c4 = st.columns(4)
-        with c1: st.metric("Avg Attendance", f"{kpi_df['attendance_score'].mean():.1f}%")
-        with c2: st.metric("Avg Punctuality", f"{kpi_df['punctuality_score'].mean():.1f}%")
-        with c3: st.metric("Avg Satisfaction", f"{kpi_df['patient_satisfaction'].mean():.1f}%")
-        with c4: st.metric("Avg Overall", f"{kpi_df['overall_score'].mean():.1f}%")
-
-    tab1, tab2, tab3 = st.tabs(["📊 Team KPI", "👤 Individual KPI", "➕ Add/Edit KPI"])
+    tab1, tab2, tab3 = st.tabs(["📊 Overview", "➕ Add/Edit KPI", "👤 Individual KPI"])
 
     with tab1:
-        if len(kpi_df) > 0:
-            st.subheader("Team KPI Overview")
-            st.progress(kpi_df['attendance_score'].mean()/100, text=f"Attendance — {kpi_df['attendance_score'].mean():.1f}%")
-            st.progress(kpi_df['punctuality_score'].mean()/100, text=f"Punctuality — {kpi_df['punctuality_score'].mean():.1f}%")
-            st.progress(kpi_df['patient_satisfaction'].mean()/100, text=f"Patient Satisfaction — {kpi_df['patient_satisfaction'].mean():.1f}%")
-            st.progress(kpi_df['task_completion'].mean()/100, text=f"Task Completion — {kpi_df['task_completion'].mean():.1f}%")
-            st.progress(kpi_df['teamwork'].mean()/100, text=f"Teamwork — {kpi_df['teamwork'].mean():.1f}%")
-
-            st.subheader("Staff KPI Table")
-            display = kpi_df[['name','department','attendance_score','punctuality_score','patient_satisfaction','task_completion','teamwork','overall_score','remarks']].copy()
-            display.columns = ['Name','Department','Attendance%','Punctuality%','Satisfaction%','Task%','Teamwork%','Overall%','Remarks']
-            st.dataframe(display, use_container_width=True, hide_index=True)
-
-            output = io.BytesIO()
-            display.to_excel(output, index=False)
-            st.download_button("📥 Download KPI Report", output.getvalue(), file_name=f"KPI_{kpi_month}.xlsx", mime="application/vnd.ms-excel")
+        kpi_df = pd.read_sql("SELECT k.*, e.name, e.department FROM kpi k JOIN employees e ON k.emp_id=e.emp_id ORDER BY k.overall_score DESC", conn)
+        if kpi_df.empty:
+            st.info("No KPI records yet. Add KPI scores in the 'Add/Edit KPI' tab.")
         else:
-            st.info("No KPI records for this month.")
+            c1, c2, c3, c4, c5 = st.columns(5)
+            with c1: st.metric("Avg Attendance", f"{kpi_df['attendance_score'].mean():.1f}%")
+            with c2: st.metric("Avg Punctuality", f"{kpi_df['punctuality_score'].mean():.1f}%")
+            with c3: st.metric("Avg Satisfaction", f"{kpi_df['satisfaction_score'].mean():.1f}%")
+            with c4: st.metric("Avg Task Score", f"{kpi_df['task_score'].mean():.1f}%")
+            with c5: st.metric("Avg Overall", f"{kpi_df['overall_score'].mean():.1f}%")
+            st.markdown("**Top Performers**")
+            top = kpi_df.nlargest(10, "overall_score")[["name","department","attendance_score","punctuality_score","satisfaction_score","task_score","teamwork_score","overall_score"]]
+            st.dataframe(top, use_container_width=True, hide_index=True)
+            csv = kpi_df.to_csv(index=False).encode()
+            st.download_button("📥 Download KPI Report (CSV)", csv, "kpi_report.csv", "text/csv")
 
     with tab2:
-        if len(kpi_df) > 0:
-            emp_opts = {f"{r['name']} ({r['department']})": r['emp_id'] for _, r in kpi_df.iterrows()}
-            sel = st.selectbox("Select Employee", list(emp_opts.keys()))
-            sel_id = emp_opts[sel]
-            row = kpi_df[kpi_df['emp_id'] == sel_id].iloc[0]
-
-            st.markdown(f"### 📊 {row['name']} — {row['department']}")
-            st.metric("Overall KPI Score", f"{row['overall_score']:.1f}%")
-            st.progress(row['attendance_score']/100, text=f"Attendance — {row['attendance_score']}%")
-            st.progress(row['punctuality_score']/100, text=f"Punctuality — {row['punctuality_score']}%")
-            st.progress(row['patient_satisfaction']/100, text=f"Patient Satisfaction — {row['patient_satisfaction']}%")
-            st.progress(row['task_completion']/100, text=f"Task Completion — {row['task_completion']}%")
-            st.progress(row['teamwork']/100, text=f"Teamwork — {row['teamwork']}%")
-            if row['remarks']:
-                st.info(f"**Remarks:** {row['remarks']}")
-
-            # Individual KPI report download
-            kpi_text = f"""
-MOTHER AMADEA MISSION HOSPITAL — KPI REPORT
-============================================
-Employee  : {row['name']}
-Department: {row['department']}
-Month     : {kpi_month}
-============================================
-Attendance Score    : {row['attendance_score']}%
-Punctuality Score   : {row['punctuality_score']}%
-Patient Satisfaction: {row['patient_satisfaction']}%
-Task Completion     : {row['task_completion']}%
-Teamwork            : {row['teamwork']}%
---------------------------------------------
-OVERALL SCORE       : {row['overall_score']}%
-============================================
-Remarks: {row['remarks']}
-Generated: {datetime.now().strftime('%d %B %Y')}
-"""
-            st.download_button("📥 Download Individual KPI", kpi_text, file_name=f"KPI_{sel_id}_{kpi_month}.txt", mime="text/plain")
-        else:
-            st.info("No KPI records yet.")
-
-    with tab3:
-        emp_opts2 = {f"{r['emp_id']} - {r['name']}": r['emp_id'] for _, r in emp_df.iterrows()}
-        sel_emp = st.selectbox("Select Employee", list(emp_opts2.keys()), key="kpi_emp")
-        sel_id2 = emp_opts2[sel_emp]
-
-        conn = get_conn()
-        existing_kpi = pd.read_sql(f"SELECT * FROM kpi WHERE emp_id='{sel_id2}' AND month='{kpi_month}'", conn)
-        conn.close()
-        ek = existing_kpi.iloc[0] if len(existing_kpi) > 0 else None
-
-        with st.form("kpi_form"):
-            k1, k2 = st.columns(2)
-            with k1:
-                att_s = st.slider("Attendance Score (%)", 0, 100, int(ek['attendance_score']) if ek is not None else 90)
-                pun_s = st.slider("Punctuality Score (%)", 0, 100, int(ek['punctuality_score']) if ek is not None else 90)
-                pat_s = st.slider("Patient Satisfaction (%)", 0, 100, int(ek['patient_satisfaction']) if ek is not None else 90)
-            with k2:
-                task_s = st.slider("Task Completion (%)", 0, 100, int(ek['task_completion']) if ek is not None else 90)
-                team_s = st.slider("Teamwork (%)", 0, 100, int(ek['teamwork']) if ek is not None else 90)
-                remarks = st.text_area("Remarks", value=ek['remarks'] if ek is not None else "")
-
-            overall = round((att_s + pun_s + pat_s + task_s + team_s) / 5, 1)
-            st.info(f"**Overall Score: {overall}%**")
-
-            if st.form_submit_button("💾 Save KPI", type="primary"):
-                conn = get_conn()
-                if ek is not None:
-                    conn.execute("UPDATE kpi SET attendance_score=?,punctuality_score=?,patient_satisfaction=?,task_completion=?,teamwork=?,overall_score=?,remarks=? WHERE emp_id=? AND month=?",
-                        (att_s, pun_s, pat_s, task_s, team_s, overall, remarks, sel_id2, kpi_month))
+        st.subheader("➕ Add / Edit KPI Scores")
+        emp_id_sel, emp_row = employee_selector("Select Employee", key="kpi_add_edit_select_employee")
+        if emp_row is not None:
+            kpi_month = st.text_input("Month", datetime.now().strftime("%B %Y"))
+            existing_kpi = pd.read_sql(f"SELECT * FROM kpi WHERE emp_id='{emp_id_sel}' AND month='{kpi_month}'", conn)
+            ex = existing_kpi.iloc[0] if not existing_kpi.empty else None
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                att_score = st.slider("Attendance Score (%)", 0, 100, int(ex["attendance_score"]) if ex is not None else 90)
+                punct_score = st.slider("Punctuality Score (%)", 0, 100, int(ex["punctuality_score"]) if ex is not None else 90)
+            with c2:
+                sat_score = st.slider("Patient Satisfaction (%)", 0, 100, int(ex["satisfaction_score"]) if ex is not None else 90)
+                task_score = st.slider("Task Completion (%)", 0, 100, int(ex["task_score"]) if ex is not None else 90)
+            with c3:
+                team_score = st.slider("Teamwork Score (%)", 0, 100, int(ex["teamwork_score"]) if ex is not None else 90)
+                kpi_notes = st.text_area("Notes", ex["notes"] if ex is not None else "")
+            overall = (att_score + punct_score + sat_score + task_score + team_score) / 5
+            st.metric("Overall KPI Score", f"{overall:.1f}%")
+            if st.button("💾 Save KPI", type="primary"):
+                if ex is not None:
+                    conn.execute("""UPDATE kpi SET attendance_score=?,punctuality_score=?,satisfaction_score=?,
+                        task_score=?,teamwork_score=?,overall_score=?,notes=? WHERE emp_id=? AND month=?""",
+                        (att_score,punct_score,sat_score,task_score,team_score,overall,kpi_notes,emp_id_sel,kpi_month))
                 else:
-                    conn.execute("INSERT INTO kpi (emp_id,month,attendance_score,punctuality_score,patient_satisfaction,task_completion,teamwork,overall_score,remarks) VALUES (?,?,?,?,?,?,?,?,?)",
-                        (sel_id2, kpi_month, att_s, pun_s, pat_s, task_s, team_s, overall, remarks))
+                    conn.execute("""INSERT INTO kpi (emp_id,month,attendance_score,punctuality_score,satisfaction_score,
+                        task_score,teamwork_score,overall_score,notes) VALUES (?,?,?,?,?,?,?,?,?)""",
+                        (emp_id_sel,kpi_month,att_score,punct_score,sat_score,task_score,team_score,overall,kpi_notes))
                 conn.commit()
-                conn.close()
                 st.success("✅ KPI saved!")
                 st.rerun()
 
-# ====================== SHIFT SCHEDULING ======================
-elif menu == "📅 Shift Scheduling":
-    st.title("📅 Shift Scheduling")
-    st.caption("April 2026")
-    leg = st.columns(3)
-    with leg[0]: st.markdown("**🌅 Morning** (06:00–14:00)")
-    with leg[1]: st.markdown("**🌤️ Afternoon** (14:00–22:00)")
-    with leg[2]: st.markdown("**🌙 Night** (22:00–06:00)")
-    st.markdown("---")
-    days = ["SUN","MON","TUE","WED","THU","FRI","SAT"]
-    header = st.columns(7)
-    for i, d in enumerate(days):
-        with header[i]:
-            st.markdown(f"<h4 style='text-align:center'>{d}</h4>", unsafe_allow_html=True)
-    weeks = [[1,2,3,4,5,6,7],[8,9,10,11,12,13,14],[15,16,17,18,19,20,21],
-             [22,23,24,25,26,27,28],[29,30,0,0,0,0,0]]
-    for week in weeks:
-        cols = st.columns(7)
-        for i, day in enumerate(week):
-            with cols[i]:
-                if day == 0: continue
-                st.markdown(f"<div style='text-align:center;font-weight:bold;margin-bottom:8px;'>{day}</div>", unsafe_allow_html=True)
-                colors = ["#FF9800","#2196F3","#9C27B0"]
-                shifts = ["Morning","Afternoon","Night"]
-                for j in range(3):
-                    st.markdown(f"""<div style="background:{colors[j]};color:white;padding:6px;margin:3px 0;border-radius:8px;text-align:center;font-size:12px;">{shifts[j]}</div>""", unsafe_allow_html=True)
+    with tab3:
+        st.subheader("👤 Individual Employee KPI Tracker")
+        emp_id_sel, emp_row = employee_selector("Select Employee", key="kpi_individual_select_employee")
+        if emp_row is not None:
+            emp_kpi = pd.read_sql(f"SELECT * FROM kpi WHERE emp_id='{emp_id_sel}' ORDER BY id DESC", conn)
+            if emp_kpi.empty:
+                st.info("No KPI records for this employee yet.")
+            else:
+                st.markdown(f"**KPI History for {emp_row['name']}**")
+                st.dataframe(emp_kpi[["month","attendance_score","punctuality_score","satisfaction_score","task_score","teamwork_score","overall_score","notes"]], use_container_width=True, hide_index=True)
+                avg = emp_kpi["overall_score"].mean()
+                st.metric("Average Overall Score", f"{avg:.1f}%")
+                kpi_text = f"KPI REPORT — {emp_row['name']} ({emp_id_sel})\n" + "=" * 50 + "\n"
+                for _, r in emp_kpi.iterrows():
+                    kpi_text += f"\nMonth: {r['month']}\n  Attendance: {r['attendance_score']}%  Punctuality: {r['punctuality_score']}%\n  Satisfaction: {r['satisfaction_score']}%  Task: {r['task_score']}%  Teamwork: {r['teamwork_score']}%\n  Overall: {r['overall_score']:.1f}%\n"
+                st.download_button("📥 Download Individual KPI Report", kpi_text, f"kpi_{emp_id_sel}.txt", "text/plain")
 
 # ====================== TRAINING ======================
 elif menu == "🎓 Training":
     st.title("🎓 Training & Development")
-    emp_df = get_employees()
-
     tab1, tab2 = st.tabs(["📋 Training Records", "➕ Add Training"])
 
     with tab1:
-        conn = get_conn()
         train_df = pd.read_sql("SELECT t.*, e.name, e.department FROM training t JOIN employees e ON t.emp_id=e.emp_id ORDER BY t.id DESC", conn)
-        conn.close()
-
-        if len(train_df) > 0:
+        if train_df.empty:
+            st.info("No training records yet.")
+        else:
             c1, c2, c3 = st.columns(3)
             with c1: st.metric("Total Trainings", len(train_df))
-            with c2: st.metric("Completed", len(train_df[train_df['status']=='Completed']))
-            with c3: st.metric("Scheduled", len(train_df[train_df['status']=='Scheduled']))
-            st.dataframe(train_df[['name','department','training_name','provider','start_date','end_date','status']], use_container_width=True, hide_index=True)
-        else:
-            st.info("No training records yet.")
+            with c2: st.metric("Completed", len(train_df[train_df["status"] == "Completed"]))
+            with c3: st.metric("Scheduled", len(train_df[train_df["status"] == "Scheduled"]))
+            show = train_df[["name","department","training_name","provider","start_date","end_date","status","certificate"]]
+            st.dataframe(show, use_container_width=True, hide_index=True)
+            csv = show.to_csv(index=False).encode()
+            st.download_button("📥 Download Training Records", csv, "training_records.csv", "text/csv")
 
     with tab2:
+        st.subheader("➕ Add Training Record")
         with st.form("training_form"):
-            emp_opts = {f"{r['emp_id']} - {r['name']}": r['emp_id'] for _, r in emp_df.iterrows()}
-            sel_emp = st.selectbox("Employee", list(emp_opts.keys()))
-            t1, t2 = st.columns(2)
-            with t1:
-                train_name = st.text_input("Training Name")
-                provider = st.text_input("Provider / Institution")
-                t_start = st.date_input("Start Date")
-            with t2:
-                t_end = st.date_input("End Date")
-                t_status = st.selectbox("Status", ["Scheduled", "In Progress", "Completed", "Cancelled"])
-                certificate = st.text_input("Certificate No (if completed)")
+            emp_df2 = get_employees()
+            if not emp_df2.empty:
+                emp_options = [f"{r['emp_id']} — {r['name']}" for _, r in emp_df2.iterrows()]
+                emp_sel = st.selectbox("Employee", emp_options)
+                emp_id_train = emp_sel.split(" — ")[0]
+            c1, c2 = st.columns(2)
+            with c1:
+                training_name = st.text_input("Training Name *")
+                provider = st.text_input("Training Provider")
+                start_date = st.date_input("Start Date")
+            with c2:
+                end_date = st.date_input("End Date")
+                status = st.selectbox("Status", ["Scheduled","In Progress","Completed","Cancelled"])
+                certificate = st.text_input("Certificate Number (if any)")
+            notes = st.text_area("Notes")
             if st.form_submit_button("✅ Add Training", type="primary"):
-                conn = get_conn()
-                conn.execute("INSERT INTO training (emp_id,training_name,provider,start_date,end_date,status,certificate) VALUES (?,?,?,?,?,?,?)",
-                    (emp_opts[sel_emp], train_name, provider, str(t_start), str(t_end), t_status, certificate))
-                conn.commit()
-                conn.close()
-                st.success("✅ Training record added!")
-                st.rerun()
-
-# ====================== ANNOUNCEMENTS ======================
-elif menu == "📢 Announcements":
-    st.title("📢 HR Announcements")
-
-    tab1, tab2 = st.tabs(["📋 All Announcements", "➕ Post Announcement"])
-
-    with tab1:
-        conn = get_conn()
-        ann_df = pd.read_sql("SELECT * FROM announcements ORDER BY id DESC", conn)
-        conn.close()
-        if len(ann_df) > 0:
-            for _, ann in ann_df.iterrows():
-                priority_colors = {"High": "🔴", "Normal": "🔵", "Low": "🟢"}
-                icon = priority_colors.get(ann['priority'], "🔵")
-                with st.expander(f"{icon} {ann['title']} — {ann['posted_on']}"):
-                    st.write(ann['message'])
-                    st.caption(f"Posted by: {ann['posted_by']} | Priority: {ann['priority']}")
-                    if st.button("🗑️ Delete", key=f"del_ann_{ann['id']}"):
-                        conn = get_conn()
-                        conn.execute("DELETE FROM announcements WHERE id=?", (ann['id'],))
-                        conn.commit()
-                        conn.close()
-                        st.rerun()
-        else:
-            st.info("No announcements yet.")
-
-    with tab2:
-        with st.form("ann_form"):
-            title = st.text_input("Title")
-            message = st.text_area("Message")
-            priority = st.selectbox("Priority", ["Normal", "High", "Low"])
-            posted_by = st.text_input("Posted By", "HR Manager")
-            if st.form_submit_button("📢 Post Announcement", type="primary"):
-                conn = get_conn()
-                conn.execute("INSERT INTO announcements (title,message,posted_by,posted_on,priority) VALUES (?,?,?,?,?)",
-                    (title, message, posted_by, str(date.today()), priority))
-                conn.commit()
-                conn.close()
-                st.success("✅ Announcement posted!")
-                st.rerun()
+                if not training_name:
+                    st.error("Training name is required!")
+                else:
+                    conn.execute("INSERT INTO training (emp_id,training_name,provider,start_date,end_date,status,certificate,notes) VALUES (?,?,?,?,?,?,?,?)",
+                        (emp_id_train, training_name, provider, str(start_date), str(end_date), status, certificate, notes))
+                    conn.commit()
+                    st.success("✅ Training record added!")
+                    st.rerun()
 
 # ====================== RECRUITMENT ======================
-elif menu == "🧑‍💼 Recruitment":
-    st.title("🧑‍💼 Recruitment")
-    dept_df = get_departments()
-
-    tab1, tab2 = st.tabs(["📋 Job Openings", "➕ Post Job"])
+elif menu == "📢 Recruitment":
+    st.title("📢 Recruitment Management")
+    tab1, tab2 = st.tabs(["📋 Job Postings", "➕ Add Job Posting"])
 
     with tab1:
-        conn = get_conn()
         rec_df = pd.read_sql("SELECT * FROM recruitment ORDER BY id DESC", conn)
-        conn.close()
-
-        if len(rec_df) > 0:
-            c1, c2, c3 = st.columns(3)
-            with c1: st.metric("Open Positions", len(rec_df[rec_df['status']=='Open']))
-            with c2: st.metric("Total Applicants", rec_df['applicants'].sum())
-            with c3: st.metric("Closed", len(rec_df[rec_df['status']=='Closed']))
-
-            for _, job in rec_df.iterrows():
-                with st.expander(f"💼 {job['job_title']} — {job['department']} ({job['status']})"):
-                    j1, j2 = st.columns(2)
-                    with j1:
-                        st.write(f"**Department:** {job['department']}")
-                        st.write(f"**Positions:** {job['positions']}")
-                        st.write(f"**Deadline:** {job['deadline']}")
-                    with j2:
-                        st.write(f"**Status:** {job['status']}")
-                        st.write(f"**Applicants:** {job['applicants']}")
-                        st.write(f"**Posted:** {job['posted_on']}")
-                    u1, u2 = st.columns(2)
-                    with u1:
-                        new_applicants = st.number_input("Update Applicants", value=int(job['applicants']), key=f"app_{job['id']}")
-                    with u2:
-                        new_job_status = st.selectbox("Update Status", ["Open","Closed","On Hold"], key=f"js_{job['id']}")
-                    if st.button("💾 Update", key=f"upd_{job['id']}"):
-                        conn = get_conn()
-                        conn.execute("UPDATE recruitment SET applicants=?,status=? WHERE id=?", (new_applicants, new_job_status, job['id']))
-                        conn.commit()
-                        conn.close()
-                        st.success("Updated!")
-                        st.rerun()
+        if rec_df.empty:
+            st.info("No job postings yet.")
         else:
-            st.info("No job openings yet.")
+            c1, c2, c3 = st.columns(3)
+            with c1: st.metric("Total Postings", len(rec_df))
+            with c2: st.metric("Open", len(rec_df[rec_df["status"] == "Open"]))
+            with c3: st.metric("Total Applicants", int(rec_df["applicants"].sum()))
+            st.dataframe(rec_df[["position","department","posted_date","deadline","applicants","status","notes"]], use_container_width=True, hide_index=True)
+            sel_job = st.selectbox("Select Job to Update", rec_df["id"].tolist(),
+                format_func=lambda x: rec_df[rec_df["id"] == x]["position"].values[0])
+            c1, c2 = st.columns(2)
+            with c1: new_status = st.selectbox("New Status", ["Open","Closed","On Hold","Filled"])
+            with c2: new_applicants = st.number_input("Applicant Count", min_value=0)
+            if st.button("💾 Update Job Posting"):
+                conn.execute("UPDATE recruitment SET status=?, applicants=? WHERE id=?", (new_status, new_applicants, sel_job))
+                conn.commit()
+                st.success("✅ Job posting updated!")
+                st.rerun()
 
     with tab2:
+        st.subheader("➕ Post New Job")
         with st.form("rec_form"):
-            r1, r2 = st.columns(2)
-            with r1:
-                job_title = st.text_input("Job Title")
-                dept = st.selectbox("Department", sorted(dept_df['dept_name'].tolist()))
-                positions = st.number_input("Number of Positions", min_value=1, value=1)
-            with r2:
+            c1, c2 = st.columns(2)
+            with c1:
+                position = st.text_input("Position Title *")
+                department = st.selectbox("Department", get_dept_names())
+                posted_date = st.date_input("Posted Date", date.today())
+            with c2:
                 deadline = st.date_input("Application Deadline")
-                rec_status = st.selectbox("Status", ["Open", "On Hold"])
-            if st.form_submit_button("📢 Post Job", type="primary"):
-                conn = get_conn()
-                conn.execute("INSERT INTO recruitment (job_title,department,positions,deadline,status,applicants,posted_on) VALUES (?,?,?,?,?,0,?)",
-                    (job_title, dept, positions, str(deadline), rec_status, str(date.today())))
-                conn.commit()
-                conn.close()
-                st.success("✅ Job posted!")
-                st.rerun()
+                status = st.selectbox("Status", ["Open","Closed","On Hold"])
+            notes = st.text_area("Job Description / Notes")
+            if st.form_submit_button("✅ Post Job", type="primary"):
+                if not position:
+                    st.error("Position title is required!")
+                else:
+                    conn.execute("INSERT INTO recruitment (position,department,posted_date,deadline,status,notes) VALUES (?,?,?,?,?,?)",
+                        (position, department, str(posted_date), str(deadline), status, notes))
+                    conn.commit()
+                    st.success("✅ Job posted!")
+                    st.rerun()
+
+# ====================== ANNOUNCEMENTS ======================
+elif menu == "📣 Announcements":
+    st.title("📣 HR Announcements")
+    tab1, tab2 = st.tabs(["📋 View Announcements", "➕ Post Announcement"])
+
+    with tab1:
+        ann_df = pd.read_sql("SELECT * FROM announcements ORDER BY id DESC", conn)
+        if ann_df.empty:
+            st.info("No announcements yet.")
+        else:
+            for _, ann in ann_df.iterrows():
+                priority_color = {"High": "🔴", "Normal": "🔵", "Low": "⚪"}.get(ann["priority"], "🔵")
+                with st.expander(f"{priority_color} {ann['title']} — {ann['posted_date']} | To: {ann['target']}"):
+                    st.write(ann["message"])
+                    st.caption(f"Posted by: {ann['posted_by']} | Priority: {ann['priority']}")
+                    if st.button(f"🗑️ Delete", key=f"del_ann_{ann['id']}"):
+                        conn.execute("DELETE FROM announcements WHERE id=?", (ann["id"],))
+                        conn.commit()
+                        st.rerun()
+
+    with tab2:
+        st.subheader("➕ Post New Announcement")
+        with st.form("ann_form"):
+            title = st.text_input("Title *")
+            message = st.text_area("Message *")
+            c1, c2, c3 = st.columns(3)
+            with c1: priority = st.selectbox("Priority", ["Normal","High","Low"])
+            with c2: target = st.selectbox("Target Audience", ["All Staff","Doctors","Nurses","Administration","Department Heads"])
+            with c3: posted_by = st.text_input("Posted By", st.session_state.current_user)
+            if st.form_submit_button("📢 Post Announcement", type="primary"):
+                if not title or not message:
+                    st.error("Title and message are required!")
+                else:
+                    conn.execute("INSERT INTO announcements (title,message,posted_by,posted_date,priority,target) VALUES (?,?,?,?,?,?)",
+                        (title, message, posted_by, str(date.today()), priority, target))
+                    conn.commit()
+                    st.success("✅ Announcement posted!")
+                    st.rerun()
 
 # ====================== REPORTS ======================
 elif menu == "📋 Reports":
-    st.title("📋 HR Reports")
-    st.caption(f"{datetime.now().strftime('%B %Y')}")
-
+    st.title("📋 HR Reports & Analytics")
     emp_df = get_employees()
-    pay_df = get_payroll("2026-04")
-    leaves_df = get_leaves()
-    kpi_df = get_kpi("2026-04")
-
-    c1, c2, c3, c4 = st.columns(4)
-    with c1: st.metric("Total Staff", len(emp_df))
-    with c2: st.metric("Departments", len(get_departments()))
-    with c3: st.metric("Net Payroll", f"KSH {pay_df['net'].sum():,.0f}" if len(pay_df) > 0 else "N/A")
-    with c4: st.metric("Avg KPI", f"{kpi_df['overall_score'].mean():.1f}%" if len(kpi_df) > 0 else "N/A")
-
-    tab1, tab2, tab3, tab4 = st.tabs(["👥 Staff Report", "💰 Payroll Report", "🌴 Leave Report", "📈 KPI Report"])
+    dept_df = get_departments()
+    pay_df = pd.read_sql("SELECT * FROM payroll", conn)
+    leave_df = pd.read_sql("SELECT * FROM leaves", conn)
+    kpi_df = pd.read_sql("SELECT * FROM kpi", conn)
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "👥 Staff Report", "💰 Payroll Report", "📈 KPI Report"])
 
     with tab1:
-        st.subheader("Staff by Department")
-        if len(emp_df) > 0:
-            dept_counts = emp_df.groupby('department').size().reset_index(name='Count')
-            st.bar_chart(dept_counts.set_index('department'))
-            st.subheader("Staff by Employment Type")
-            type_counts = emp_df.groupby('employment_type').size().reset_index(name='Count')
-            st.dataframe(type_counts, use_container_width=True, hide_index=True)
-            st.dataframe(emp_df[['emp_id','name','position','department','hire_date','status']], use_container_width=True, hide_index=True)
-            output = io.BytesIO()
-            emp_df.to_excel(output, index=False)
-            st.download_button("📥 Export Staff Report", output.getvalue(), file_name="Staff_Report.xlsx", mime="application/vnd.ms-excel")
+        st.subheader("Facility Overview")
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
+        with c1: st.metric("Total Staff", len(emp_df))
+        with c2: st.metric("Active Staff", len(emp_df[emp_df["status"] == "Active"]) if not emp_df.empty else 0)
+        with c3: st.metric("Departments", len(dept_df))
+        with c4: st.metric("Net Payroll", f"KES {pay_df['net'].sum():,.0f}" if not pay_df.empty else "N/A")
+        with c5: st.metric("Total Leaves", len(leave_df))
+        with c6: st.metric("Avg KPI", f"{kpi_df['overall_score'].mean():.1f}%" if not kpi_df.empty else "N/A")
+        if not emp_df.empty:
+            st.markdown("**Staff Distribution by Department**")
+            dept_counts = emp_df.groupby("department").size().reset_index(name="Staff Count")
+            st.dataframe(dept_counts, use_container_width=True, hide_index=True)
+            st.markdown("**Employment Type Breakdown**")
+            emp_type = emp_df.groupby("employment_type").size().reset_index(name="Count")
+            st.dataframe(emp_type, use_container_width=True, hide_index=True)
 
     with tab2:
-        if len(pay_df) > 0:
-            st.subheader("Payroll Summary")
-            dept_pay = pay_df.groupby('department')['net'].sum().reset_index()
-            st.bar_chart(dept_pay.set_index('department'))
-            st.dataframe(pay_df[['name','department','gross','total_deductions','net','status']], use_container_width=True, hide_index=True)
-            output2 = io.BytesIO()
-            pay_df.to_excel(output2, index=False)
-            st.download_button("📥 Export Payroll Report", output2.getvalue(), file_name="Payroll_Report.xlsx", mime="application/vnd.ms-excel")
+        st.subheader("Staff Report")
+        if emp_df.empty:
+            st.info("No staff records.")
+        else:
+            st.dataframe(emp_df, use_container_width=True, hide_index=True)
+            csv = emp_df.to_csv(index=False).encode()
+            st.download_button("📥 Download Full Staff Report", csv, "full_staff_report.csv", "text/csv")
 
     with tab3:
-        if len(leaves_df) > 0:
-            leave_summary = leaves_df.groupby(['leave_type','status']).size().reset_index(name='Count')
-            st.dataframe(leave_summary, use_container_width=True, hide_index=True)
-            st.dataframe(leaves_df[['name','department','leave_type','start_date','end_date','days','status']], use_container_width=True, hide_index=True)
-            output3 = io.BytesIO()
-            leaves_df.to_excel(output3, index=False)
-            st.download_button("📥 Export Leave Report", output3.getvalue(), file_name="Leave_Report.xlsx", mime="application/vnd.ms-excel")
+        st.subheader("Payroll Report")
+        if pay_df.empty:
+            st.info("No payroll records.")
+        else:
+            pay_full = pd.read_sql("SELECT p.*, e.name, e.department FROM payroll p JOIN employees e ON p.emp_id=e.emp_id", conn)
+            st.dataframe(pay_full, use_container_width=True, hide_index=True)
+            csv = pay_full.to_csv(index=False).encode()
+            st.download_button("📥 Download Payroll Report", csv, "payroll_report.csv", "text/csv")
 
     with tab4:
-        if len(kpi_df) > 0:
-            st.subheader("KPI Performance")
-            st.progress(kpi_df['attendance_score'].mean()/100, text=f"Attendance — {kpi_df['attendance_score'].mean():.1f}%")
-            st.progress(kpi_df['punctuality_score'].mean()/100, text=f"Punctuality — {kpi_df['punctuality_score'].mean():.1f}%")
-            st.progress(kpi_df['patient_satisfaction'].mean()/100, text=f"Patient Satisfaction — {kpi_df['patient_satisfaction'].mean():.1f}%")
-            st.progress(kpi_df['task_completion'].mean()/100, text=f"Task Completion — {kpi_df['task_completion'].mean():.1f}%")
-            st.dataframe(kpi_df[['name','department','attendance_score','punctuality_score','patient_satisfaction','task_completion','overall_score']], use_container_width=True, hide_index=True)
-            output4 = io.BytesIO()
-            kpi_df.to_excel(output4, index=False)
-            st.download_button("📥 Export KPI Report", output4.getvalue(), file_name="KPI_Report.xlsx", mime="application/vnd.ms-excel")
+        st.subheader("KPI Report")
+        if kpi_df.empty:
+            st.info("No KPI records.")
+        else:
+            kpi_full = pd.read_sql("SELECT k.*, e.name, e.department FROM kpi k JOIN employees e ON k.emp_id=e.emp_id ORDER BY k.overall_score DESC", conn)
+            st.dataframe(kpi_full, use_container_width=True, hide_index=True)
+            csv = kpi_full.to_csv(index=False).encode()
+            st.download_button("📥 Download KPI Report", csv, "kpi_report.csv", "text/csv")
+
+        report_text = f"MOTHER AMADEA MISSION HOSPITAL\nFULL HR REPORT\nGenerated: {datetime.now().strftime('%d %B %Y %H:%M')}\n"
+        report_text += "=" * 50 + "\n"
+        report_text += f"Total Staff     : {len(emp_df)}\nDepartments     : {len(dept_df)}\n"
+        report_text += f"Net Payroll     : KES {pay_df['net'].sum():,.2f}\n" if not pay_df.empty else "Net Payroll     : N/A\n"
+        report_text += f"Avg KPI Score   : {kpi_df['overall_score'].mean():.1f}%\n" if not kpi_df.empty else "Avg KPI Score   : N/A\n"
+        st.download_button("📥 Download Full Facility Report (TXT)", report_text, "facility_report.txt", "text/plain")
